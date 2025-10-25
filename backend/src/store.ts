@@ -19,6 +19,56 @@ const SESSION_ID_MAP_KEY = 'sessions:id-map'
 
 let ioInstance: SocketIOServer | null = null
 
+function requireHashField(source: Record<string, string>, field: string, context: string): string {
+  const value = source[field]
+  if (value === undefined) {
+    throw new Error(`Missing "${field}" while hydrating ${context} from Redis`)
+  }
+  return value
+}
+
+function requireNumberField(source: Record<string, string>, field: string, context: string): number {
+  const value = requireHashField(source, field, context)
+  const parsed = Number(value)
+  if (Number.isNaN(parsed)) {
+    throw new Error(`Field "${field}" on ${context} was expected to be numeric but received "${value}"`)
+  }
+  return parsed
+}
+
+function hydrateParticipant(source: Record<string, string>): Participant {
+  return {
+    id: requireHashField(source, 'id', 'participant'),
+    deviceId: requireHashField(source, 'deviceId', 'participant'),
+    displayName: requireHashField(source, 'displayName', 'participant'),
+    role: requireHashField(source, 'role', 'participant') as JudgingRole,
+    connected: requireHashField(source, 'connected', 'participant') === 'true',
+    joinedAt: requireNumberField(source, 'joinedAt', 'participant'),
+    lastSeen: requireNumberField(source, 'lastSeen', 'participant'),
+  }
+}
+
+function hydrateFieldNote(source: Record<string, string>): FieldNote {
+  return {
+    id: requireNumberField(source, 'id', 'field note'),
+    sessionId: requireHashField(source, 'sessionId', 'field note'),
+    eventSku: requireHashField(source, 'eventSku', 'field note'),
+    reporterDeviceId: requireHashField(source, 'reporterDeviceId', 'field note'),
+    reporterName: requireHashField(source, 'reporterName', 'field note'),
+    reporterRole: requireHashField(source, 'reporterRole', 'field note') as JudgingRole,
+    division: requireHashField(source, 'division', 'field note'),
+    fieldLocation: requireHashField(source, 'fieldLocation', 'field note'),
+    matchIdentifier: requireHashField(source, 'matchIdentifier', 'field note'),
+    teamsInvolved: requireHashField(source, 'teamsInvolved', 'field note'),
+    issueSummary: requireHashField(source, 'issueSummary', 'field note'),
+    priority: requireHashField(source, 'priority', 'field note') as 'normal' | 'urgent',
+    sentiment: requireHashField(source, 'sentiment', 'field note') as 'positive' | 'negative',
+    resolved: requireHashField(source, 'resolved', 'field note') === 'true',
+    createdAt: requireNumberField(source, 'createdAt', 'field note'),
+    updatedAt: requireNumberField(source, 'updatedAt', 'field note'),
+  }
+}
+
 export function setSocketIO(io: SocketIOServer) {
   ioInstance = io
 }
@@ -98,11 +148,11 @@ async function readSessionMeta(sessionCode: string): Promise<Session | null> {
     return null
   }
   return {
-    id: meta.id,
-    sessionCode: meta.sessionCode,
-    eventSku: meta.eventSku,
-    createdAt: Number(meta.createdAt),
-    judgeAdvisorDeviceId: meta.judgeAdvisorDeviceId || null,
+    id: requireHashField(meta, 'id', 'session'),
+    sessionCode: requireHashField(meta, 'sessionCode', 'session'),
+    eventSku: requireHashField(meta, 'eventSku', 'session'),
+    createdAt: requireNumberField(meta, 'createdAt', 'session'),
+    judgeAdvisorDeviceId: meta.judgeAdvisorDeviceId ?? null,
   }
 }
 
@@ -150,16 +200,7 @@ async function findParticipantData(sessionCode: string, deviceId: string) {
   if (!data || Object.keys(data).length === 0) {
     return null
   }
-  const participant: Participant = {
-    id: data.id,
-    deviceId: data.deviceId,
-    displayName: data.displayName,
-    role: data.role as JudgingRole,
-    connected: data.connected === 'true',
-    joinedAt: Number(data.joinedAt),
-    lastSeen: Number(data.lastSeen),
-  }
-  return participant
+  return hydrateParticipant(data)
 }
 
 export async function getParticipantByDevice(session: Session, deviceId: string) {
@@ -385,22 +426,10 @@ export async function updateFieldNoteResolution(session: Session, noteId: number
   if (!existing || Object.keys(existing).length === 0) {
     return null
   }
+  const baseNote = hydrateFieldNote(existing)
   const updated: FieldNote = {
-    id: Number(existing.id),
-    sessionId: existing.sessionId,
-    eventSku: existing.eventSku,
-    reporterDeviceId: existing.reporterDeviceId,
-    reporterName: existing.reporterName,
-    reporterRole: existing.reporterRole as JudgingRole,
-    division: existing.division,
-    fieldLocation: existing.fieldLocation,
-    matchIdentifier: existing.matchIdentifier,
-    teamsInvolved: existing.teamsInvolved,
-    issueSummary: existing.issueSummary,
-    priority: existing.priority as 'normal' | 'urgent',
-    sentiment: existing.sentiment as 'positive' | 'negative',
+    ...baseNote,
     resolved,
-    createdAt: Number(existing.createdAt),
     updatedAt: Date.now(),
   }
   await redisRest.hset(key, {
@@ -436,25 +465,7 @@ async function listFieldNotes(session: Session): Promise<FieldNote[]> {
   const notes = await Promise.all(noteIds.map(async (id) => {
     const data = await redisRest.hgetall<Record<string, string>>(fieldNoteItemKey(session.sessionCode, id))
     if (!data || Object.keys(data).length === 0) return null
-    const note: FieldNote = {
-      id: Number(data.id),
-      sessionId: data.sessionId,
-      eventSku: data.eventSku,
-      reporterDeviceId: data.reporterDeviceId,
-      reporterName: data.reporterName,
-      reporterRole: data.reporterRole as JudgingRole,
-      division: data.division,
-      fieldLocation: data.fieldLocation,
-      matchIdentifier: data.matchIdentifier,
-      teamsInvolved: data.teamsInvolved,
-      issueSummary: data.issueSummary,
-      priority: data.priority as 'normal' | 'urgent',
-      sentiment: data.sentiment as 'positive' | 'negative',
-      resolved: data.resolved === 'true',
-      createdAt: Number(data.createdAt),
-      updatedAt: Number(data.updatedAt),
-    }
-    return note
+    return hydrateFieldNote(data)
   }))
   return notes.filter((note): note is FieldNote => Boolean(note))
 }
@@ -482,7 +493,7 @@ export async function serializePendingOtp(pending: PendingOtp): Promise<Serializ
   }
 }
 
-function serializeFieldNote(note: FieldNote): SerializedFieldNote {
+export function serializeFieldNote(note: FieldNote): SerializedFieldNote {
   return {
     id: note.id,
     sessionId: note.sessionId,

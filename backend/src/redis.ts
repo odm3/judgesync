@@ -1,5 +1,6 @@
 import { Redis as UpstashRedis } from '@upstash/redis'
-import IORedis from 'ioredis'
+import * as IORedisModule from 'ioredis'
+import type { Redis as RedisClient, RedisOptions } from 'ioredis'
 
 const restUrl = process.env.UPSTASH_REDIS_REST_URL
 const restToken = process.env.UPSTASH_REDIS_REST_TOKEN
@@ -18,7 +19,7 @@ export const redisRest = new UpstashRedis({
   token: restToken,
 })
 
-const baseOptions: IORedis.RedisOptions = {
+const baseOptions: RedisOptions = {
   lazyConnect: true,
   maxRetriesPerRequest: null,
   enableReadyCheck: false,
@@ -27,8 +28,13 @@ const baseOptions: IORedis.RedisOptions = {
   },
 }
 
-export const redisPubClient = new IORedis(redisUrl, baseOptions)
-export const redisSubClient = redisPubClient.duplicate()
+type RedisConstructor = new (connectionString: string, options: RedisOptions) => RedisClient
+
+const rawExport = IORedisModule as unknown as { default?: RedisConstructor }
+const RedisConstructor = (rawExport.default ?? (IORedisModule as unknown as RedisConstructor)) as RedisConstructor
+
+export const redisPubClient: RedisClient = new RedisConstructor(redisUrl, baseOptions)
+export const redisSubClient: RedisClient = redisPubClient.duplicate()
 
 export async function connectRedisPubSub() {
   await Promise.all([
