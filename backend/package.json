@@ -1,0 +1,40 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "description": "",
+  "type": "module",
+  "main": "dist/server.js",
+  "scripts": {
+    "dev": "npm run build && node dist/server.js",
+    "build": "tsc --project tsconfig.json",
+    "start": "node dist/server.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@hono/node-server": "^1.19.5",
+    "@socket.io/redis-adapter": "^8.3.0",
+    "compression": "^1.8.1",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "helmet": "^8.1.0",
+    "hono": "^4.10.2",
+    "@upstash/redis": "^1.28.3",
+    "ioredis": "^5.8.2",
+    "jose": "^6.1.0",
+    "nanoid": "^5.1.6",
+    "robotevents": "^6.0.4",
+    "socket.io": "^4.8.1",
+    "winston": "^3.18.3",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/node": "^24.9.1",
+    "nodemon": "^3.1.10",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  }
+}

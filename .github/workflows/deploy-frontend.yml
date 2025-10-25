@@ -1,0 +1,172 @@
+name: Deploy Frontend to S3 + CloudFront
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "frontend/**"
+      - ".github/workflows/deploy-frontend.yml"
+      - "infra/cloudformation/frontend-stack.yml"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Deploy CloudFormation frontend stack
+        id: cfn
+        working-directory: .
+        env:
+          STACK_NAME: judgesync-frontend
+          SITE_DOMAIN: ${{ secrets.SITE_DOMAIN_NAME || 'judgesync.example.com' }}
+          HOSTED_ZONE_ID: ${{ secrets.HOSTED_ZONE_ID || '' }}
+          BUCKET_NAME: ${{ secrets.S3_BUCKET_NAME || '' }}
+        run: |
+          echo "Deploying CloudFormation stack: $STACK_NAME"
+          echo "Domain: $SITE_DOMAIN"
+
+          aws cloudformation deploy \
+            --template-file infra/cloudformation/frontend-stack.yml \
+            --stack-name $STACK_NAME \
+            --parameter-overrides \
+              SiteDomainName=$SITE_DOMAIN \
+              HostedZoneId=$HOSTED_ZONE_ID \
+              BucketName=$BUCKET_NAME \
+            --no-fail-on-empty-changeset \
+            --region us-east-1
+
+          echo "Extracting stack outputs..."
+          BUCKET_NAME=$(aws cloudformation describe-stacks \
+            --stack-name $STACK_NAME \
+            --region us-east-1 \
+            --query 'Stacks[0].Outputs[?OutputKey==`SiteBucketName`].OutputValue' \
+            --output text)
+
+          DISTRIBUTION_ID=$(aws cloudformation describe-stacks \
+            --stack-name $STACK_NAME \
+            --region us-east-1 \
+            --query 'Stacks[0].Outputs[?OutputKey==`DistributionId`].OutputValue' \
+            --output text)
+
+          CLOUDFRONT_URL=$(aws cloudformation describe-stacks \
+            --stack-name $STACK_NAME \
+            --region us-east-1 \
+            --query 'Stacks[0].Outputs[?OutputKey==`CloudFrontURL`].OutputValue' \
+            --output text)
+
+          CERT_ARN=$(aws cloudformation describe-stacks \
+            --stack-name $STACK_NAME \
+            --region us-east-1 \
+            --query 'Stacks[0].Outputs[?OutputKey==`CertificateArn`].OutputValue' \
+            --output text)
+
+          echo "bucket_name=$BUCKET_NAME" >> "$GITHUB_OUTPUT"
+          echo "distribution_id=$DISTRIBUTION_ID" >> "$GITHUB_OUTPUT"
+          echo "cloudfront_url=$CLOUDFRONT_URL" >> "$GITHUB_OUTPUT"
+          echo "certificate_arn=$CERT_ARN" >> "$GITHUB_OUTPUT"
+
+          echo "✅ S3 Bucket: $BUCKET_NAME"
+          echo "✅ CloudFront Distribution: $DISTRIBUTION_ID"
+          echo "✅ CloudFront URL: $CLOUDFRONT_URL"
+
+      - name: Check ACM certificate status
+        working-directory: .
+        env:
+          CERT_ARN: ${{ steps.cfn.outputs.certificate_arn }}
+        run: |
+          echo "Checking ACM certificate status..."
+          CERT_STATUS=$(aws acm describe-certificate \
+            --certificate-arn "$CERT_ARN" \
+            --region us-east-1 \
+            --query 'Certificate.Status' \
+            --output text)
+
+          echo "Certificate status: $CERT_STATUS"
+
+          if [ "$CERT_STATUS" = "PENDING_VALIDATION" ]; then
+            echo "⚠️  Certificate is pending validation!"
+            echo "Please validate the certificate in AWS Console:"
+            echo "https://console.aws.amazon.com/acm/home?region=us-east-1#/certificates/$CERT_ARN"
+            echo ""
+            echo "Validation records:"
+            aws acm describe-certificate \
+              --certificate-arn "$CERT_ARN" \
+              --region us-east-1 \
+              --query 'Certificate.DomainValidationOptions[0].ResourceRecord' \
+              --output table
+            echo ""
+            echo "Note: Continuing with deployment. CloudFront may not work until certificate is validated."
+          elif [ "$CERT_STATUS" = "ISSUED" ]; then
+            echo "✅ Certificate is validated and issued"
+          else
+            echo "ℹ️  Certificate status: $CERT_STATUS"
+          fi
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build frontend
+        env:
+          VITE_SHARING_API: ${{ secrets.VITE_SHARING_API }}
+          VITE_ROBOTEVENTS_TOKEN: ${{ secrets.VITE_ROBOTEVENTS_TOKEN }}
+        run: |
+          echo "Building frontend with API: $VITE_SHARING_API"
+          npm run build
+
+      - name: Sync to S3
+        working-directory: .
+        env:
+          BUCKET_NAME: ${{ steps.cfn.outputs.bucket_name }}
+        run: |
+          echo "Syncing build to S3 bucket: $BUCKET_NAME"
+          aws s3 sync frontend/dist s3://$BUCKET_NAME/ --delete
+
+          echo "✅ Files uploaded to S3"
+
+      - name: Invalidate CloudFront cache
+        working-directory: .
+        env:
+          DISTRIBUTION_ID: ${{ steps.cfn.outputs.distribution_id }}
+        run: |
+          echo "Creating CloudFront invalidation..."
+          INVALIDATION_ID=$(aws cloudfront create-invalidation \
+            --distribution-id $DISTRIBUTION_ID \
+            --paths "/*" \
+            --query 'Invalidation.Id' \
+            --output text)
+
+          echo "✅ Invalidation created: $INVALIDATION_ID"
+          echo "CloudFront cache will be refreshed in 1-5 minutes"
+
+      - name: Summary
+        working-directory: .
+        run: |
+          echo "## 🚀 Frontend Deployment Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**S3 Bucket:** \`${{ steps.cfn.outputs.bucket_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**CloudFront URL:** ${{ steps.cfn.outputs.cloudfront_url }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Distribution ID:** \`${{ steps.cfn.outputs.distribution_id }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "The site will be live in 1-5 minutes after CloudFront cache invalidation completes." >> $GITHUB_STEP_SUMMARY

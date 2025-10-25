@@ -1,0 +1,66 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Lightsail container service for JudgeSync backend (Socket.IO + Node)
+
+Parameters:
+  ContainerServiceName:
+    Type: String
+    Description: Lightsail container service name (must be unique in region)
+    Default: judgesync-backend
+  Power:
+    Type: String
+    Default: micro
+    AllowedValues: [nano, micro, small, medium, large, xlarge, 2xlarge]
+    Description: Lightsail power plan (CPU/RAM). Micro = 0.25 vCPU, 1 GB RAM ($10/month).
+  Scale:
+    Type: Number
+    Default: 1
+    MinValue: 1
+    MaxValue: 20
+    Description: Number of container replicas
+  HealthCheckPath:
+    Type: String
+    Default: /health
+    Description: HTTP path used to determine container health
+  ContainerPort:
+    Type: Number
+    Default: 8787
+    Description: Backend listen port exposed by the container
+
+Resources:
+  BackendContainerService:
+    Type: AWS::Lightsail::ContainerService
+    Properties:
+      ServiceName: !Ref ContainerServiceName
+      Power: !Ref Power
+      Scale: !Ref Scale
+      IsDisabled: false
+      PublicEndpoint:
+        ContainerName: backend
+        ContainerPort: !Ref ContainerPort
+        HealthCheck:
+          HealthyThreshold: 2
+          UnhealthyThreshold: 2
+          TimeoutSeconds: 5
+          IntervalSeconds: 30
+          Path: !Ref HealthCheckPath
+      Tags:
+        - Key: Application
+          Value: JudgeSync
+        - Key: Environment
+          Value: production
+        - Key: ManagedBy
+          Value: CloudFormation
+
+Outputs:
+  ContainerServiceName:
+    Value: !Ref BackendContainerService
+    Description: Lightsail container service name
+    Export:
+      Name: !Sub '${AWS::StackName}-ServiceName'
+
+  ContainerServiceUrl:
+    Value: !Sub 'https://${BackendContainerService.ContainerServiceUrl}'
+    Description: Public URL for the backend service (enable custom domain separately)
+    Export:
+      Name: !Sub '${AWS::StackName}-ServiceUrl'

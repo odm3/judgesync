@@ -1,0 +1,13 @@
+Judge Sync Design Document V2 (1).pdf
+local.env
+backend/dist
+frontend/dist
+backend/node_modules
+frontend/node_modules
+.DS_Store
+.vscode
+npm-debug.log
+yarn-error.log
+.env.local
+dist/frontend
+.env
