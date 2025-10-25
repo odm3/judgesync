@@ -42,7 +42,7 @@ export default defineConfig({
     host: '0.0.0.0',
     strictPort: true,
   },
-  base: '/judgesync',
+  base: '/',
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
