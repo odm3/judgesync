@@ -129,6 +129,12 @@ jobs:
       - name: Install jq
         run: sudo apt-get update && sudo apt-get install -y jq
 
+      - name: Install lightsailctl plugin
+        run: |
+          curl -sSL https://lightsail.aws.amazon.com/ls/docs/en_us/articles/lightsail-install-software -o /tmp/lightsailctl.md
+          curl -sSL "https://lightsail-control.us-east-1.amazonaws.com/lsctl/latest/linux-amd64/lightsailctl" -o /usr/local/bin/lightsailctl
+          chmod +x /usr/local/bin/lightsailctl
+
       - name: Push container image to Lightsail
         id: push
         env:
