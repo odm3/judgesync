@@ -147,16 +147,29 @@ jobs:
             --output json 2>&1 | tee push-output.log
 
           JSON_OUTPUT=$(sed -n '/^{/,$p' push-output.log | tr -d '\r')
-          if [ -z "$JSON_OUTPUT" ]; then
+          DIGEST_LINE=$(grep -E '^Digest:' push-output.log | tail -n1 | awk '{print $2}')
+          REFER_LINE=$(grep -E 'Refer to this image as' push-output.log | tail -n1)
+
+          if [ -n "$JSON_OUTPUT" ]; then
+            echo "$JSON_OUTPUT" > push-output.json
+            IMAGE_NAME=$(echo "$JSON_OUTPUT" | jq -r '.image')
+            IMAGE_DIGEST=$(echo "$JSON_OUTPUT" | jq -r '.imageDigest')
+          elif [ -n "$REFER_LINE" ]; then
+            IMAGE_NAME=$(echo "$REFER_LINE" | sed -E 's/.*"([^"]+)".*/\1/')
+            IMAGE_DIGEST=$DIGEST_LINE
+          else
             echo "::error::Failed to parse image push output. See push-output.log for details."
             exit 1
           fi
 
-          echo "$JSON_OUTPUT" > push-output.json
-          IMAGE_NAME=$(echo "$JSON_OUTPUT" | jq -r '.image')
-          IMAGE_DIGEST=$(echo "$JSON_OUTPUT" | jq -r '.imageDigest')
+          if [ -z "$IMAGE_NAME" ]; then
+            echo "::error::Image identifier missing in push output."
+            exit 1
+          fi
 
-          echo "digest=$IMAGE_DIGEST" >> "$GITHUB_OUTPUT"
+          if [ -n "$IMAGE_DIGEST" ]; then
+            echo "digest=$IMAGE_DIGEST" >> "$GITHUB_OUTPUT"
+          fi
           echo "image=$IMAGE_NAME" >> "$GITHUB_OUTPUT"
           echo "✅ Pushed image: $IMAGE_NAME"
 
