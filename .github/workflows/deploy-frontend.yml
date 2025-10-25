@@ -85,7 +85,7 @@ jobs:
           echo "✅ CloudFront URL: $CLOUDFRONT_URL"
 
       - name: Check ACM certificate status
-        if: ${{ secrets.SITE_DOMAIN_NAME != '' }}
+        if: steps.cfn.outputs.certificate_arn
         working-directory: .
         env:
           CERT_ARN: ${{ steps.cfn.outputs.certificate_arn }}
