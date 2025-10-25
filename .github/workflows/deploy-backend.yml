@@ -93,16 +93,28 @@ jobs:
 
             echo "Current state: $STATE (attempt $i/30)"
 
-            if [ "$STATE" = "ACTIVE" ] || [ "$STATE" = "RUNNING" ]; then
-              echo "✅ Service is ready!"
-              exit 0
-            elif [ "$STATE" = "PENDING" ] || [ "$STATE" = "DEPLOYING" ]; then
-              echo "Waiting..."
-              sleep 10
-            else
-              echo "❌ Unexpected state: $STATE"
-              exit 1
-            fi
+            case "$STATE" in
+              RUNNING|READY|ACTIVE)
+                echo "✅ Service is ready!"
+                exit 0
+                ;;
+              CREATING|PREPARING|PENDING|UPDATING|DEPLOYING)
+                echo "Deployment in progress. Waiting..."
+                sleep 10
+                ;;
+              DISABLED|PAUSED)
+                echo "⚠️ Service is $STATE. Please enable or resume it before redeploying."
+                exit 1
+                ;;
+              DELETING)
+                echo "❌ Service is being deleted. Aborting deployment."
+                exit 1
+                ;;
+              *)
+                echo "ℹ️ Unexpected state '$STATE'. Waiting a bit longer..."
+                sleep 10
+                ;;
+            esac
           done
 
           echo "⚠️ Timeout waiting for service to be ready"

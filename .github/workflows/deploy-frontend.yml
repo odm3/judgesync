@@ -142,7 +142,7 @@ jobs:
           BUCKET_NAME: ${{ steps.cfn.outputs.bucket_name }}
         run: |
           echo "Syncing build to S3 bucket: $BUCKET_NAME"
-          aws s3 sync frontend/dist s3://$BUCKET_NAME/ --delete
+          aws s3 sync dist/frontend s3://$BUCKET_NAME/ --delete
 
           echo "✅ Files uploaded to S3"
 
