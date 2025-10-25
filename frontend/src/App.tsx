@@ -4,7 +4,7 @@ import { EventPage } from './pages/EventPage'
 
 function App() {
   return (
-    <BrowserRouter basename="/judgesync">
+    <BrowserRouter>
       <Routes>
         <Route path="/" element={<HomePage />} />
         <Route path="/:sku/*" element={<EventPage />} />
