@@ -34,26 +34,43 @@ jobs:
           SCALE: ${{ secrets.LIGHTSAIL_SCALE || '1' }}
         run: |
           echo "Deploying CloudFormation stack: $STACK_NAME"
+          CFN_REGION=${AWS_REGION:-${AWS_DEFAULT_REGION:-us-east-1}}
+
+          echo "Checking if stack already exists..."
+          if aws cloudformation describe-stacks \
+            --stack-name "$STACK_NAME" \
+            --region "$CFN_REGION" \
+            --query 'Stacks[0].StackStatus' >/dev/null 2>&1; then
+            BOOTSTRAP=false
+            echo "Stack exists. Skipping bootstrap deployment."
+          else
+            BOOTSTRAP=true
+            echo "Stack does not exist. Bootstrapping initial deployment."
+          fi
 
           aws cloudformation deploy \
             --template-file infra/cloudformation/backend-stack.yml \
-            --stack-name $STACK_NAME \
+            --stack-name "$STACK_NAME" \
             --parameter-overrides \
-              ContainerServiceName=$SERVICE_NAME \
-              Power=$POWER \
-              Scale=$SCALE \
+              ContainerServiceName="$SERVICE_NAME" \
+              Power="$POWER" \
+              Scale="$SCALE" \
               HealthCheckPath=/health \
               ContainerPort=8787 \
-            --no-fail-on-empty-changeset
+              BootstrapDeployment=$BOOTSTRAP \
+            --no-fail-on-empty-changeset \
+            --region "$CFN_REGION"
 
           echo "Extracting stack outputs..."
           SERVICE_NAME=$(aws cloudformation describe-stacks \
-            --stack-name $STACK_NAME \
+            --stack-name "$STACK_NAME" \
+            --region "$CFN_REGION" \
             --query 'Stacks[0].Outputs[?OutputKey==`ContainerServiceName`].OutputValue' \
             --output text)
 
           SERVICE_URL=$(aws cloudformation describe-stacks \
-            --stack-name $STACK_NAME \
+            --stack-name "$STACK_NAME" \
+            --region "$CFN_REGION" \
             --query 'Stacks[0].Outputs[?OutputKey==`ContainerServiceUrl`].OutputValue' \
             --output text)
 

@@ -167,5 +167,6 @@ Outputs:
     Value: !Ref FrontendDistribution
 
   CertificateArn:
+    Condition: HasDomain
     Description: ACM certificate ARN (issued in us-east-1)
     Value: !Ref FrontendCertificate

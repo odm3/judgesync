@@ -35,16 +35,6 @@ Resources:
       Power: !Ref Power
       Scale: !Ref Scale
       IsDisabled: false
-      ContainerServiceDeployment:
-        PublicEndpoint:
-          ContainerName: backend
-          ContainerPort: !Ref ContainerPort
-          HealthCheckConfig:
-            HealthyThreshold: 2
-            UnhealthyThreshold: 2
-            TimeoutSeconds: 5
-            IntervalSeconds: 30
-            Path: !Ref HealthCheckPath
       Tags:
         - Key: Application
           Value: JudgeSync
@@ -56,12 +46,11 @@ Resources:
 Outputs:
   ContainerServiceName:
     Value: !Ref BackendContainerService
-    Description: Lightsail container service name
     Export:
       Name: !Sub "${AWS::StackName}-ServiceName"
 
   Url:
-    Value: !Sub "https://${BackendContainerService.ContainerServiceUrl}"
-    Description: Public URL for the backend service (enable custom domain separately)
+    Value: !GetAtt BackendContainerService.Url
+    Description: Public URL for the backend service
     Export:
       Name: !Sub "${AWS::StackName}-ServiceUrl"
