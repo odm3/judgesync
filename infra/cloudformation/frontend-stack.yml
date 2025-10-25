@@ -84,7 +84,7 @@ Resources:
           - !Ref "AWS::NoValue"
         DefaultRootObject: index.html
         PriceClass: PriceClass_100
-        ViewerCertificate: !If
+        ViewerCertificate:
           AcmCertificateArn: !If
             - HasDomain
             - !Ref FrontendCertificate

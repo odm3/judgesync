@@ -35,15 +35,16 @@ Resources:
       Power: !Ref Power
       Scale: !Ref Scale
       IsDisabled: false
-      PublicEndpoint:
-        ContainerName: backend
-        ContainerPort: !Ref ContainerPort
-        HealthCheck:
-          HealthyThreshold: 2
-          UnhealthyThreshold: 2
-          TimeoutSeconds: 5
-          IntervalSeconds: 30
-          Path: !Ref HealthCheckPath
+      ContainerServiceDeployment:
+        PublicEndpoint:
+          ContainerName: backend
+          ContainerPort: !Ref ContainerPort
+          HealthCheckConfig:
+            HealthyThreshold: 2
+            UnhealthyThreshold: 2
+            TimeoutSeconds: 5
+            IntervalSeconds: 30
+            Path: !Ref HealthCheckPath
       Tags:
         - Key: Application
           Value: JudgeSync
