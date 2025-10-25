@@ -59,7 +59,7 @@ Outputs:
     Export:
       Name: !Sub "${AWS::StackName}-ServiceName"
 
-  ContainerServiceUrl:
+  Url:
     Value: !Sub "https://${BackendContainerService.ContainerServiceUrl}"
     Description: Public URL for the backend service (enable custom domain separately)
     Export:

@@ -1,4 +1,4 @@
-AWSTemplateFormatVersion: '2010-09-09'
+AWSTemplateFormatVersion: "2010-09-09"
 Description: >
   Static hosting for the JudgeSync frontend (S3 + CloudFront + ACM certificate)
 
@@ -6,21 +6,20 @@ Parameters:
   SiteDomainName:
     Type: String
     Description: Fully qualified domain name to serve the site (e.g. app.example.com)
-    Default: ''
+    Default: ""
   HostedZoneId:
     Type: String
     Description: Route 53 hosted zone ID that manages the domain (leave blank to skip DNS record)
-    Default: ''
+    Default: ""
   BucketName:
     Type: String
     Description: Globally unique S3 bucket name for the built frontend assets
-    Default: ''
+    Default: ""
 
 Conditions:
-  HasHostedZone: !Not [!Equals [!Ref HostedZoneId, '']]
-  BucketNameProvided: !Not [!Equals [!Ref BucketName, '']]
-  HasDomain: !Not [!Equals [!Ref SiteDomainName, '']]
-
+  HasHostedZone: !Not [!Equals [!Ref HostedZoneId, ""]]
+  BucketNameProvided: !Not [!Equals [!Ref BucketName, ""]]
+  HasDomain: !Not [!Equals [!Ref SiteDomainName, ""]]
 
 Resources:
   FrontendBucket:
@@ -29,7 +28,7 @@ Resources:
       BucketName: !If
         - BucketNameProvided
         - !Ref BucketName
-        - !Sub '${AWS::StackName}-${AWS::AccountId}-${AWS::Region}-frontend'
+        - !Sub "${AWS::StackName}-${AWS::AccountId}-${AWS::Region}-frontend"
       VersioningConfiguration:
         Status: Enabled
       PublicAccessBlockConfiguration:
@@ -54,7 +53,8 @@ Resources:
       ValidationMethod: DNS
       DomainValidationOptions:
         - DomainName: !Ref SiteDomainName
-          HostedZoneId: !If [HasHostedZone, !Ref HostedZoneId, !Ref "AWS::NoValue"]
+          HostedZoneId:
+            !If [HasHostedZone, !Ref HostedZoneId, !Ref "AWS::NoValue"]
       Tags:
         - Key: Application
           Value: JudgeSync
@@ -64,7 +64,7 @@ Resources:
     Properties:
       OriginAccessControlConfig:
         Description: Allow CloudFront sigv4 access to S3 bucket
-        Name: !Sub '${AWS::StackName}-oac'
+        Name: !Sub "${AWS::StackName}-oac"
         OriginAccessControlOriginType: s3
         SigningBehavior: always
         SigningProtocol: sigv4
@@ -76,8 +76,8 @@ Resources:
         Enabled: true
         Comment: !If
           - HasDomain
-          - !Sub 'Frontend for ${SiteDomainName}'
-          - 'Frontend for JudgeSync'
+          - !Sub "Frontend for ${SiteDomainName}"
+          - "Frontend for JudgeSync"
         Aliases: !If
           - HasDomain
           - [!Ref SiteDomainName]
@@ -85,12 +85,22 @@ Resources:
         DefaultRootObject: index.html
         PriceClass: PriceClass_100
         ViewerCertificate: !If
-          - HasDomain
-          - {
-              AcmCertificateArn: !Ref FrontendCertificate
-              MinimumProtocolVersion: TLSv1.2_2021
-              SslSupportMethod: sni-only
-            }
+          AcmCertificateArn: !If
+            - HasDomain
+            - !Ref FrontendCertificate
+            - !Ref "AWS::NoValue"
+          CloudFrontDefaultCertificate: !If
+            - HasDomain
+            - !Ref "AWS::NoValue"
+            - true
+          MinimumProtocolVersion: !If
+            - HasDomain
+            - TLSv1.2_2021
+            - !Ref "AWS::NoValue"
+          SslSupportMethod: !If
+            - HasDomain
+            - sni-only
+            - !Ref "AWS::NoValue"
         Origins:
           - Id: s3-origin
             DomainName: !GetAtt FrontendBucket.RegionalDomainName
@@ -119,17 +129,17 @@ Resources:
     Properties:
       Bucket: !Ref FrontendBucket
       PolicyDocument:
-        Version: '2012-10-17'
+        Version: "2012-10-17"
         Statement:
           - Sid: AllowCloudFrontRead
             Effect: Allow
             Principal:
               Service: cloudfront.amazonaws.com
             Action: s3:GetObject
-            Resource: !Sub '${FrontendBucket.Arn}/*'
+            Resource: !Sub "${FrontendBucket.Arn}/*"
             Condition:
               StringEquals:
-                AWS:SourceArn: !Sub 'arn:aws:cloudfront::${AWS::AccountId}:distribution/${FrontendDistribution}'
+                AWS:SourceArn: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${FrontendDistribution}"
 
   FrontendDNSRecord:
     Type: AWS::Route53::RecordSet
@@ -150,7 +160,7 @@ Outputs:
 
   CloudFrontURL:
     Description: Default CloudFront domain for the distribution
-    Value: !Sub 'https://${FrontendDistribution.DomainName}'
+    Value: !Sub "https://${FrontendDistribution.DomainName}"
 
   DistributionId:
     Description: CloudFront distribution ID (use for invalidations)
