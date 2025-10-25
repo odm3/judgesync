@@ -22,7 +22,7 @@ These secrets **must** be configured for deployments to work.
 | Secret Name | Description | Example Value |
 |------------|-------------|---------------|
 | `AWS_ROLE_ARN` | IAM role ARN that GitHub Actions will assume via OIDC | `arn:aws:iam::123456789012:role/GitHubActionsRole` |
-| `AWS_REGION` | AWS region for deployments | `us-east-1` |
+| `AWS_REGION` (or `AWS_DEFAULT_REGION`) | AWS region for deployments | `us-east-1` |
 
 ### Backend Secrets
 
@@ -238,9 +238,11 @@ aws iam get-role \
 arn:aws:iam::123456789012:role/GitHubActionsRole
 ```
 
-### AWS_REGION
+### AWS_REGION (or AWS_DEFAULT_REGION)
 
 Choose the AWS region closest to your users. Recommended: `us-east-1` (required for CloudFront ACM certificates).
+
+**Note:** The workflows accept either `AWS_REGION` or `AWS_DEFAULT_REGION` - use whichever you prefer.
 
 **Value:**
 ```
@@ -327,7 +329,7 @@ eyJ0eXAiOiJKV1QiLCJhbGc...
 | Secret | Required? | Where Used | Default |
 |--------|-----------|------------|---------|
 | `AWS_ROLE_ARN` | ✅ Yes | Both workflows | N/A |
-| `AWS_REGION` | ✅ Yes | Both workflows | N/A |
+| `AWS_REGION` (or `AWS_DEFAULT_REGION`) | ✅ Yes | Both workflows | N/A |
 | `UPSTASH_REDIS_REST_URL` | ✅ Yes | Backend deployment | N/A |
 | `UPSTASH_REDIS_REST_TOKEN` | ✅ Yes | Backend deployment | N/A |
 | `UPSTASH_REDIS_URL` | ✅ Yes | Backend deployment | N/A |
