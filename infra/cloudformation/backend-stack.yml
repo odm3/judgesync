@@ -1,4 +1,4 @@
-AWSTemplateFormatVersion: '2010-09-09'
+AWSTemplateFormatVersion: "2010-09-09"
 Description: >
   Lightsail container service for JudgeSync backend (Socket.IO + Node)
 
@@ -29,7 +29,7 @@ Parameters:
 
 Resources:
   BackendContainerService:
-    Type: AWS::Lightsail::ContainerService
+    Type: AWS::Lightsail::Container
     Properties:
       ServiceName: !Ref ContainerServiceName
       Power: !Ref Power
@@ -57,10 +57,10 @@ Outputs:
     Value: !Ref BackendContainerService
     Description: Lightsail container service name
     Export:
-      Name: !Sub '${AWS::StackName}-ServiceName'
+      Name: !Sub "${AWS::StackName}-ServiceName"
 
   ContainerServiceUrl:
-    Value: !Sub 'https://${BackendContainerService.ContainerServiceUrl}'
+    Value: !Sub "https://${BackendContainerService.ContainerServiceUrl}"
     Description: Public URL for the backend service (enable custom domain separately)
     Export:
-      Name: !Sub '${AWS::StackName}-ServiceUrl'
+      Name: !Sub "${AWS::StackName}-ServiceUrl"
