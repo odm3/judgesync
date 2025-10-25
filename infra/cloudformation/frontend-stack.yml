@@ -6,6 +6,7 @@ Parameters:
   SiteDomainName:
     Type: String
     Description: Fully qualified domain name to serve the site (e.g. app.example.com)
+    Default: ''
   HostedZoneId:
     Type: String
     Description: Route 53 hosted zone ID that manages the domain (leave blank to skip DNS record)
@@ -18,6 +19,8 @@ Parameters:
 Conditions:
   HasHostedZone: !Not [!Equals [!Ref HostedZoneId, '']]
   BucketNameProvided: !Not [!Equals [!Ref BucketName, '']]
+  HasDomain: !Not [!Equals [!Ref SiteDomainName, '']]
+
 
 Resources:
   FrontendBucket:
@@ -45,6 +48,7 @@ Resources:
 
   FrontendCertificate:
     Type: AWS::CertificateManager::Certificate
+    Condition: HasDomain
     Properties:
       DomainName: !Ref SiteDomainName
       ValidationMethod: DNS
@@ -70,15 +74,23 @@ Resources:
     Properties:
       DistributionConfig:
         Enabled: true
-        Comment: !Sub 'Frontend for ${SiteDomainName}'
-        Aliases:
-          - !Ref SiteDomainName
+        Comment: !If
+          - HasDomain
+          - !Sub 'Frontend for ${SiteDomainName}'
+          - 'Frontend for JudgeSync'
+        Aliases: !If
+          - HasDomain
+          - [!Ref SiteDomainName]
+          - !Ref "AWS::NoValue"
         DefaultRootObject: index.html
         PriceClass: PriceClass_100
-        ViewerCertificate:
-          AcmCertificateArn: !Ref FrontendCertificate
-          MinimumProtocolVersion: TLSv1.2_2021
-          SslSupportMethod: sni-only
+        ViewerCertificate: !If
+          - HasDomain
+          - {
+              AcmCertificateArn: !Ref FrontendCertificate
+              MinimumProtocolVersion: TLSv1.2_2021
+              SslSupportMethod: sni-only
+            }
         Origins:
           - Id: s3-origin
             DomainName: !GetAtt FrontendBucket.RegionalDomainName

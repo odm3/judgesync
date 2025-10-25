@@ -33,7 +33,7 @@ jobs:
         working-directory: .
         env:
           STACK_NAME: judgesync-frontend
-          SITE_DOMAIN: ${{ secrets.SITE_DOMAIN_NAME || 'judgesync.example.com' }}
+          SITE_DOMAIN: ${{ secrets.SITE_DOMAIN_NAME || '' }}
           HOSTED_ZONE_ID: ${{ secrets.HOSTED_ZONE_ID || '' }}
           BUCKET_NAME: ${{ secrets.S3_BUCKET_NAME || '' }}
         run: |
@@ -85,6 +85,7 @@ jobs:
           echo "✅ CloudFront URL: $CLOUDFRONT_URL"
 
       - name: Check ACM certificate status
+        if: ${{ secrets.SITE_DOMAIN_NAME != '' }}
         working-directory: .
         env:
           CERT_ARN: ${{ steps.cfn.outputs.certificate_arn }}
