@@ -14,6 +14,7 @@ export interface Participant {
   connected: boolean
   joinedAt: number
   lastSeen: number
+  tokenId: string | null
 }
 
 export interface Session {
@@ -107,4 +108,17 @@ export interface ApiErrorPayload {
     code: string
     message: string
   }
+}
+
+export interface AuthContext {
+  deviceId: string
+  sessionCode: string
+  role: JudgingRole
+}
+
+export interface AuthResponse {
+  token: string
+  signingKey: string
+  expiresAt: number
+  tokenId: string
 }

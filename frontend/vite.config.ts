@@ -11,10 +11,17 @@ export default defineConfig({
     registerType: 'autoUpdate',
     manifest: {
       name: 'JudgeSync',
+      description: 'Real-time collaboration for VEX Robotics judges',
       short_name: 'JudgeSync',
       theme_color: '#ffffff',
-      background_color: '#1a1a1a',
-
+      background_color: '#434750',
+      start_url: '/',
+      display: 'standalone',
+      icons: [
+        {
+          src: 'assets/gear_icon_192_transparent.png',
+        }
+      ],
     },
     workbox: {
       globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],

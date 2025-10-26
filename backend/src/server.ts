@@ -1,3 +1,6 @@
+// Load environment variables first, before any other imports
+import './env.js'
+
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { logger } from 'hono/logger'
@@ -12,11 +15,25 @@ import { connectRedisPubSub, redisPubClient, redisSubClient } from './redis.js'
 
 const app = new Hono()
 
+// Configure CORS with allowed origins from environment
+const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',').map((o) => o.trim()) || ['http://localhost:5173', 'http://192.168.4.226:5173']
+
 app.use('*', cors({
-  origin: '*',
+  origin: (origin) => {
+    // Allow requests with no origin (mobile apps, curl, etc.)
+    if (!origin) return '*'
+    // Check if origin is in allowed list
+    return allowedOrigins.includes(origin) ? origin : ''
+  },
   credentials: true,
 }))
 app.use('*', logger())
+
+app.onError((err, c) => {
+  console.error('❌ Unhandled error:', err)
+  console.error('Stack:', err.stack)
+  return c.json({ error: { code: 'INTERNAL_ERROR', message: err.message } }, 500)
+})
 
 app.route('/api/sessions', sessionsRoute)
 
@@ -39,7 +56,13 @@ async function bootstrap() {
 
   const io = new SocketIOServer(httpServer, {
     cors: {
-      origin: '*',
+      origin: (origin, callback) => {
+        if (!origin || allowedOrigins.includes(origin)) {
+          callback(null, true)
+        } else {
+          callback(new Error('Not allowed by CORS'))
+        }
+      },
       methods: ['GET', 'POST'],
       credentials: true,
     },

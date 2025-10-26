@@ -1,11 +1,12 @@
 import { io, Socket } from 'socket.io-client'
+import { getAuthToken } from '@/lib/auth'
 
 class SocketService {
   private socket: Socket | null = null
   private serverUrl: string | null = null
   private deviceId: string | null = null
   private currentSessionCode: string | null = null
-  private pendingJoinPayload: { sessionCode: string; deviceId: string } | null = null
+  private pendingJoinPayload: { sessionCode: string; deviceId: string; token?: string } | null = null
 
   connect(serverUrl: string, deviceId: string) {
     if (this.socket) {
@@ -45,7 +46,11 @@ class SocketService {
     if (!this.socket) return
     this.currentSessionCode = sessionCode
     this.deviceId = deviceId
-    this.pendingJoinPayload = { sessionCode, deviceId }
+
+    // Get JWT token for authentication
+    const token = getAuthToken()
+    this.pendingJoinPayload = { sessionCode, deviceId, token: token || undefined }
+
     if (this.socket.connected) {
       this.socket.emit('join_session', this.pendingJoinPayload)
     } else {

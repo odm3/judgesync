@@ -264,6 +264,18 @@ export function JudgingSessionProvider({ children }: { children: React.ReactNode
       })
     }
 
+    const handleOtpRejected = (payload: { deviceId: string; reason: string; otp: string }) => {
+      // Remove rejected OTP from pending list
+      setSessionInfoState((prev) => {
+        if (!prev || prev.sessionCode !== sessionCode) return prev
+        const remaining = prev.pendingOtps.filter((item) => item.otp !== payload.otp)
+        return normalizeSharingSession({
+          ...prev,
+          pendingOtps: remaining,
+        })
+      })
+    }
+
     socketService.on('session:state', handleSessionState)
     socketService.on('join_request_pending', handleJoinPending)
     const connectedHandler = (data: { participant: SharingParticipant }) => mergeParticipant(data.participant)
@@ -280,6 +292,7 @@ export function JudgingSessionProvider({ children }: { children: React.ReactNode
     socketService.on('participant:disconnected', disconnectedHandler)
     socketService.on('participant:role', handleParticipantRole)
     socketService.on('participant:removed', handleParticipantRemoved)
+    socketService.on('otp:rejected', handleOtpRejected)
     socketService.on('field_note:created', handleFieldNoteCreated)
     socketService.on('field_note:updated', handleFieldNoteUpdated)
     socketService.onConnect(handleConnect)
@@ -298,6 +311,7 @@ export function JudgingSessionProvider({ children }: { children: React.ReactNode
       socketService.off('participant:disconnected', disconnectedHandler)
       socketService.off('participant:role', handleParticipantRole)
       socketService.off('participant:removed', handleParticipantRemoved)
+      socketService.off('otp:rejected', handleOtpRejected)
       socketService.off('field_note:created', handleFieldNoteCreated)
       socketService.off('field_note:updated', handleFieldNoteUpdated)
       socketService.offConnect(handleConnect)
@@ -317,7 +331,7 @@ export function JudgingSessionProvider({ children }: { children: React.ReactNode
 
   const approveJoinRequest = async (otp: string) => {
     if (!sessionCode) return
-    const result = await approveJoinOtp(sessionCode, otp, deviceId)
+    const result = await approveJoinOtp(sessionCode, otp)
     setSessionInfoState(normalizeSharingSession(result.session))
   }
 

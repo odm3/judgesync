@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import {
   addFieldNote as addLocalFieldNote,
   listFieldNotes,
@@ -7,7 +7,6 @@ import {
 } from '@/storage/fieldNotes'
 import { useJudgingSession, type SharingFieldNote } from '@/context/JudgingSessionContext'
 import { createFieldNote, updateFieldNoteResolution } from '@/services/sharing'
-import { getDeviceId } from '@/lib/device'
 
 interface UseFieldNotesResult {
   notes: FieldNoteRecord[]
@@ -38,7 +37,6 @@ export function useFieldNotes(eventSku: string): UseFieldNotesResult {
   const [notes, setNotes] = useState<FieldNoteRecord[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const { sessionCode, sessionInfo, setSessionInfo } = useJudgingSession()
-  const deviceId = useMemo(() => getDeviceId(), [])
 
   const loadLocalNotes = useCallback(async () => {
     setIsLoading(true)
@@ -63,7 +61,7 @@ export function useFieldNotes(eventSku: string): UseFieldNotesResult {
   const createNote = useCallback(
     async (note: Omit<FieldNoteRecord, 'id' | 'createdAt' | 'eventSku'>) => {
       if (sessionCode) {
-        const result = await createFieldNote(sessionCode, deviceId, {
+        const result = await createFieldNote(sessionCode, {
           reporterName: note.reporterName,
           division: note.division,
           fieldLocation: note.fieldLocation,
@@ -80,13 +78,13 @@ export function useFieldNotes(eventSku: string): UseFieldNotesResult {
         setNotes((prev) => [record, ...prev])
       }
     },
-    [sessionCode, deviceId, eventSku, setSessionInfo],
+    [sessionCode, eventSku, setSessionInfo],
   )
 
   const setResolved = useCallback(
     async (id: number, resolved: boolean) => {
       if (sessionCode) {
-        const result = await updateFieldNoteResolution(sessionCode, id, deviceId, resolved)
+        const result = await updateFieldNoteResolution(sessionCode, id, resolved)
         setSessionInfo(result.session)
         setNotes(result.session.fieldNotes.map(mapSharedFieldNote))
       } else {
@@ -96,7 +94,7 @@ export function useFieldNotes(eventSku: string): UseFieldNotesResult {
         )
       }
     },
-    [sessionCode, deviceId, setSessionInfo],
+    [sessionCode, setSessionInfo],
   )
 
   return {

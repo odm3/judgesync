@@ -5,12 +5,14 @@ import type {
   SharingFieldNote,
   JudgingRole,
 } from '@/context/JudgingSessionContext'
+import { getAuthToken, storeAuth, type AuthData } from '@/lib/auth'
 
 const API_BASE = import.meta.env.VITE_SHARING_API ?? 'http://localhost:8787'
 
 interface SessionEnvelope {
   session: SharingSessionInfo
   participant?: SharingParticipant
+  auth?: AuthData
 }
 
 interface OtpResponse {
@@ -99,8 +101,44 @@ async function toApiError(res: Response) {
   return new Error(`Request failed with status ${res.status}`)
 }
 
-async function request<T>(input: RequestInfo, init?: RequestInit) {
-  const res = await fetch(input, init)
+async function request<T>(input: RequestInfo, init?: RequestInit, requiresSignature = false) {
+  const token = getAuthToken()
+
+  const headers: Record<string, string> = {
+    ...(init?.headers as Record<string, string> || {}),
+  }
+
+  // Add JWT token if available
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`
+  }
+
+  // Add HMAC signature for protected endpoints
+  if (requiresSignature && token) {
+    const url = typeof input === 'string' ? input : input.url
+    const parsedUrl = new URL(url, window.location.origin)
+    const path = parsedUrl.pathname
+    const method = init?.method || 'GET'
+    const timestamp = Math.floor(Date.now() / 1000)
+
+    try {
+      const auth = await import('@/lib/auth')
+      const authData = auth.getAuth()
+      if (authData) {
+        const signature = await auth.signRequest(method, path, timestamp, authData.signingKey)
+        headers['X-Signature'] = signature
+        headers['X-Timestamp'] = timestamp.toString()
+      }
+    } catch (error) {
+      console.error('Failed to sign request:', error)
+    }
+  }
+
+  const res = await fetch(input, {
+    ...init,
+    headers,
+  })
+
   if (!res.ok) {
     throw await toApiError(res)
   }
@@ -109,7 +147,7 @@ async function request<T>(input: RequestInfo, init?: RequestInit) {
 
 export async function createOrGetSession(eventSku: string, deviceId: string, displayName: string, role: 'judge_advisor' | 'judge' | 'viewer'): Promise<SessionEnvelope> {
   const body = JSON.stringify({ deviceId, displayName, role })
-  const data = await request<{ session: any; participant?: any }>(
+  const data = await request<{ session: any; participant?: any; auth?: AuthData }>(
     `${API_BASE}/api/sessions/by-sku/${encodeURIComponent(eventSku)}`,
     {
       method: 'POST',
@@ -118,9 +156,15 @@ export async function createOrGetSession(eventSku: string, deviceId: string, dis
     },
   )
 
+  // Store authentication data if provided
+  if (data.auth) {
+    storeAuth(data.auth)
+  }
+
   return {
     session: mapSession(data.session),
     participant: data.participant ? mapParticipant(data.participant) : undefined,
+    auth: data.auth,
   }
 }
 
@@ -146,19 +190,25 @@ export async function requestJoinOtp(sessionCode: string, deviceId: string, disp
   )
 }
 
-export async function approveJoinOtp(sessionCode: string, otp: string, advisorDeviceId: string): Promise<SessionEnvelope> {
-  const data = await request<{ participant: any; session: any }>(
+export async function approveJoinOtp(sessionCode: string, otp: string): Promise<SessionEnvelope> {
+  const data = await request<{ participant: any; session: any; auth?: AuthData }>(
     `${API_BASE}/api/sessions/${encodeURIComponent(sessionCode)}/approve`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ otp, advisorDeviceId }),
+      body: JSON.stringify({ otp }),
     },
   )
+
+  // Store authentication data for the newly approved participant
+  if (data.auth) {
+    storeAuth(data.auth)
+  }
 
   return {
     participant: mapParticipant(data.participant),
     session: mapSession(data.session),
+    auth: data.auth,
   }
 }
 
@@ -174,7 +224,6 @@ export async function fetchSessionStateBySku(eventSku: string): Promise<SharingS
 
 export async function createFieldNote(
   sessionCode: string,
-  deviceId: string,
   payload: CreateFieldNotePayload,
 ): Promise<{ fieldNote: SharingFieldNote; session: SharingSessionInfo }> {
   const data = await request<{ fieldNote: any; session: any }>(
@@ -182,8 +231,9 @@ export async function createFieldNote(
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ deviceId, ...payload }),
+      body: JSON.stringify(payload),
     },
+    true, // Requires HMAC signature
   )
 
   return {
@@ -195,7 +245,6 @@ export async function createFieldNote(
 export async function updateFieldNoteResolution(
   sessionCode: string,
   noteId: number,
-  deviceId: string,
   resolved: boolean,
 ): Promise<{ fieldNote: SharingFieldNote; session: SharingSessionInfo }> {
   const data = await request<{ fieldNote: any; session: any }>(
@@ -203,8 +252,9 @@ export async function updateFieldNoteResolution(
     {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ deviceId, resolved }),
+      body: JSON.stringify({ resolved }),
     },
+    true, // Requires HMAC signature
   )
   return {
     fieldNote: mapFieldNote(data.fieldNote),
@@ -215,36 +265,36 @@ export async function updateFieldNoteResolution(
 export async function updateParticipantRole(
   sessionCode: string,
   participantDeviceId: string,
-  advisorDeviceId: string,
   role: JudgingRole,
-): Promise<{ participant: SharingParticipant; session: SharingSessionInfo }> {
-  const data = await request<{ participant: any; session: any }>(
+): Promise<{ participant: SharingParticipant; session: SharingSessionInfo; auth?: AuthData }> {
+  const data = await request<{ participant: any; session: any; auth?: AuthData }>(
     `${API_BASE}/api/sessions/${encodeURIComponent(sessionCode)}/participants/${encodeURIComponent(participantDeviceId)}/role`,
     {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ advisorDeviceId, role }),
+      body: JSON.stringify({ role }),
     },
+    true, // Requires HMAC signature
   )
 
   return {
     participant: mapParticipant(data.participant),
     session: mapSession(data.session),
+    auth: data.auth,
   }
 }
 
 export async function removeParticipant(
   sessionCode: string,
   participantDeviceId: string,
-  advisorDeviceId: string,
 ): Promise<SharingSessionInfo> {
   const data = await request<{ session: any }>(
     `${API_BASE}/api/sessions/${encodeURIComponent(sessionCode)}/participants/${encodeURIComponent(participantDeviceId)}`,
     {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ advisorDeviceId }),
     },
+    true, // Requires HMAC signature
   )
 
   return mapSession(data.session)

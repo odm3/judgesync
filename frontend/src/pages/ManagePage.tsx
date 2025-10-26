@@ -9,7 +9,7 @@ import {
   type SetStateAction,
 } from 'react'
 import type { EventData, Team } from '@/types/robotevents'
-import { ArrowRight, CheckCircle2, CircleAlert, X, Smile, Frown } from 'lucide-react'
+import { ArrowRight, CheckCircle2, CircleAlert, X, Smile, Frown, Check } from 'lucide-react'
 import {
   useJudgingSession,
   type JudgingRole,
@@ -88,6 +88,7 @@ export function ManagePage({ event }: ManagePageProps) {
   const [inviteError, setInviteError] = useState<string | null>(null)
   const [updatingParticipantRoleFor, setUpdatingParticipantRoleFor] = useState<string | null>(null)
   const [removingParticipantId, setRemovingParticipantId] = useState<string | null>(null)
+  const [approvingOtp, setApprovingOtp] = useState<string | null>(null)
 
   const trimmedAdvisorName = advisorName.trim()
   const isAdvisorNameValid = trimmedAdvisorName.length >= 3
@@ -240,7 +241,7 @@ export function ManagePage({ event }: ManagePageProps) {
     setInviteLoading(true)
     setInviteError(null)
     try {
-      const res = await approveJoinOtp(sessionCode, inviteOtp.trim(), deviceId)
+      const res = await approveJoinOtp(sessionCode, inviteOtp.trim())
       setSessionCode(res.session.sessionCode)
       setSessionInfo(normalizeSharingSession(res.session))
       pushToast({
@@ -258,6 +259,30 @@ export function ManagePage({ event }: ManagePageProps) {
     }
   }
 
+  const handleQuickApprove = async (otp: string) => {
+    if (!sessionCode) return
+    setApprovingOtp(otp)
+    try {
+      const res = await approveJoinOtp(sessionCode, otp)
+      setSessionCode(res.session.sessionCode)
+      setSessionInfo(normalizeSharingSession(res.session))
+      pushToast({
+        title: 'Participant Added',
+        description: `${res.participant?.displayName ?? 'Participant'} joined the session`,
+        variant: 'success',
+      })
+    } catch (error: any) {
+      console.error(error)
+      pushToast({
+        title: 'Approval Failed',
+        description: error?.message || 'Failed to approve join request',
+        variant: 'destructive',
+      })
+    } finally {
+      setApprovingOtp(null)
+    }
+  }
+
   const handleParticipantRoleChange = async (participantDeviceId: string, nextRole: JudgingRole) => {
     if (!sessionInfo || participantDeviceId === deviceId && nextRole === role) return
     setUpdatingParticipantRoleFor(participantDeviceId)
@@ -265,7 +290,6 @@ export function ManagePage({ event }: ManagePageProps) {
       const result = await updateParticipantRole(
         sessionInfo.sessionCode,
         participantDeviceId,
-        deviceId,
         nextRole,
       )
       setSessionInfo(normalizeSharingSession(result.session))
@@ -291,7 +315,7 @@ export function ManagePage({ event }: ManagePageProps) {
     if (!window.confirm('Remove this device from the judging session?')) return
     setRemovingParticipantId(participantDeviceId)
     try {
-      const updatedSession = await removeParticipant(sessionInfo.sessionCode, participantDeviceId, deviceId)
+      const updatedSession = await removeParticipant(sessionInfo.sessionCode, participantDeviceId)
       setSessionInfo(normalizeSharingSession(updatedSession))
       pushToast({
         title: 'Participant Removed',
@@ -428,6 +452,8 @@ export function ManagePage({ event }: ManagePageProps) {
             onRemoveParticipant={handleRemoveParticipant}
             updatingParticipantRoleFor={updatingParticipantRoleFor}
             removingParticipantId={removingParticipantId}
+            onQuickApprove={handleQuickApprove}
+            approvingOtp={approvingOtp}
           />
         )}
 
@@ -490,6 +516,70 @@ export function ManagePage({ event }: ManagePageProps) {
             onSubmit={handleApproveOtp}
           />
         )}
+      </div>
+    </div>
+  )
+}
+
+interface CircularTimerProps {
+  expiresAt: number
+  size?: number
+}
+
+function CircularTimer({ expiresAt, size = 48 }: CircularTimerProps) {
+  const [remainingSeconds, setRemainingSeconds] = useState(() =>
+    Math.max(0, Math.floor((expiresAt - Date.now()) / 1000))
+  )
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const seconds = Math.max(0, Math.floor((expiresAt - Date.now()) / 1000))
+      setRemainingSeconds(seconds)
+      if (seconds <= 0) {
+        clearInterval(interval)
+      }
+    }, 1000)
+
+    return () => clearInterval(interval)
+  }, [expiresAt])
+
+  if (remainingSeconds <= 0) {
+    return null
+  }
+
+  const radius = (size - 4) / 2
+  const circumference = 2 * Math.PI * radius
+  const progress = remainingSeconds / 60 // Assuming 60s total
+  const strokeDashoffset = circumference * (1 - progress)
+  const isUrgent = remainingSeconds <= 10
+
+  return (
+    <div className="relative" style={{ width: size, height: size }}>
+      <svg width={size} height={size} className="rotate-[-90deg]">
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          stroke="currentColor"
+          strokeWidth="3"
+          fill="none"
+          className="text-white/10"
+        />
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          stroke="currentColor"
+          strokeWidth="3"
+          fill="none"
+          strokeDasharray={circumference}
+          strokeDashoffset={strokeDashoffset}
+          className={`transition-all duration-1000 ${isUrgent ? 'text-red-400' : 'text-amber-400'}`}
+          strokeLinecap="round"
+        />
+      </svg>
+      <div className={`absolute inset-0 flex items-center justify-center text-xs font-semibold ${isUrgent ? 'text-red-400' : 'text-amber-400'}`}>
+        {remainingSeconds}s
       </div>
     </div>
   )
@@ -703,6 +793,8 @@ interface SharingSessionPanelProps {
   onRemoveParticipant: (deviceId: string) => void
   updatingParticipantRoleFor: string | null
   removingParticipantId: string | null
+  onQuickApprove: (otp: string) => void
+  approvingOtp: string | null
 }
 
 function SharingSessionPanel({
@@ -716,6 +808,8 @@ function SharingSessionPanel({
   onRemoveParticipant,
   updatingParticipantRoleFor,
   removingParticipantId,
+  onQuickApprove,
+  approvingOtp,
 }: SharingSessionPanelProps) {
   const sortedParticipants = [...session.participants].sort((a, b) =>
     (a.displayName || '').localeCompare(b.displayName || '', undefined, { sensitivity: 'base' }),
@@ -751,17 +845,51 @@ function SharingSessionPanel({
         </div>
       </header>
 
-      {isJudgeAdvisor && session.pendingOtps.length > 0 && (
-        <div className="mt-4 rounded-xl border border-amber-400/40 bg-amber-500/10 px-4 py-3 text-xs text-amber-200">
-          <p className="font-semibold uppercase tracking-wide text-amber-100">Pending Approvals</p>
-          <ul className="mt-2 space-y-1">
-            {session.pendingOtps.map((pending) => (
-              <li key={pending.otp} className="flex justify-between">
-                <span>{pending.displayName || pending.deviceId.slice(-6)}</span>
-                <span className="font-mono">{pending.otp}</span>
-              </li>
+      {isJudgeAdvisor && session.pendingOtps.filter((p) => p.expiresAt > Date.now()).length > 0 && (
+        <div className="mt-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold uppercase tracking-wide text-amber-100">Pending Approvals</p>
+            <p className="text-[10px] text-amber-200/70">Codes expire in 60 seconds</p>
+          </div>
+          {session.pendingOtps
+            .filter((p) => p.expiresAt > Date.now())
+            .map((pending) => (
+              <div
+                key={pending.otp}
+                className="flex items-center gap-3 rounded-xl border border-amber-400/40 bg-amber-500/10 px-4 py-3"
+              >
+                <CircularTimer expiresAt={pending.expiresAt} size={48} />
+                <div className="flex-1">
+                  <p className="text-sm font-semibold text-amber-100">
+                    {pending.displayName || `Device ${pending.deviceId.slice(-6)}`}
+                  </p>
+                  <div className="mt-1 flex items-center gap-2">
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${
+                        pending.requestedRole === 'judge'
+                          ? 'bg-emerald-500/20 text-emerald-200'
+                          : 'bg-slate-500/20 text-slate-200'
+                      }`}
+                    >
+                      {displayRoleFor(pending.requestedRole)}
+                    </span>
+                    <span className="font-mono text-xs text-amber-200/70">{pending.otp}</span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onQuickApprove(pending.otp)}
+                  disabled={approvingOtp === pending.otp}
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500 text-emerald-950 shadow-lg shadow-emerald-500/40 transition hover:bg-emerald-400 disabled:opacity-50"
+                >
+                  {approvingOtp === pending.otp ? (
+                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-emerald-950 border-t-transparent" />
+                  ) : (
+                    <Check className="h-5 w-5" />
+                  )}
+                </button>
+              </div>
             ))}
-          </ul>
         </div>
       )}
 
@@ -1313,7 +1441,7 @@ function InviteModal({ sessionCode, otp, setOtp, loading, error, onClose, onSubm
               type="button"
               onClick={onSubmit}
               disabled={loading || otp.length !== 6}
-              className="inline-flex h-10 items-center gap-2 rounded-xl bg-primary px-4 font-semibold text-primary-foreground shadow-lg shadow-primary/30 transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-70"
+              className="inline-flex h-10 items-center gap-2 rounded-xl bg-emerald-500 px-4 font-semibold text-emerald-950 shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-70"
             >
               {loading ? 'Adding…' : 'Add Participant'}
             </button>

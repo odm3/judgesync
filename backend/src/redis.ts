@@ -24,7 +24,7 @@ const baseOptions: RedisOptions = {
   maxRetriesPerRequest: null,
   enableReadyCheck: false,
   tls: {
-    rejectUnauthorized: false,
+    rejectUnauthorized: true,
   },
 }
 

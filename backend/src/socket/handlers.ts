@@ -8,6 +8,7 @@ import {
 } from '../store.js'
 import { getRoomName, joinRoom, leaveRoom, broadcastToRoom } from './rooms.js'
 import type { JoinSessionPayload, LeaveSessionPayload, OperationPayload } from './types.js'
+import { verifyToken } from '../auth/jwt.js'
 
 interface SocketContext {
   sessionCode: string
@@ -18,7 +19,28 @@ const socketContexts = new Map<string, SocketContext>()
 
 export function initializeSocketHandlers(io: SocketIOServer) {
   io.on('connection', (socket) => {
-    socket.on('join_session', async (payload: JoinSessionPayload) => {
+    socket.on('join_session', async (payload: JoinSessionPayload & { token?: string }) => {
+      // Validate JWT token
+      if (!payload.token) {
+        socket.emit('session:error', { message: 'Authentication token required' })
+        return
+      }
+
+      let deviceId: string
+      try {
+        const verified = await verifyToken(payload.token)
+        deviceId = verified.deviceId
+
+        // Verify the token's session matches the requested session
+        if (verified.sessionCode !== payload.sessionCode) {
+          socket.emit('session:error', { message: 'Token session mismatch' })
+          return
+        }
+      } catch (error) {
+        socket.emit('session:error', { message: 'Invalid or expired authentication token' })
+        return
+      }
+
       const session = await getSessionByCode(payload.sessionCode)
       if (!session) {
         socket.emit('session:error', { message: 'Session not found' })
@@ -26,11 +48,11 @@ export function initializeSocketHandlers(io: SocketIOServer) {
       }
 
       joinRoom(socket, session.sessionCode)
-      socketContexts.set(socket.id, { sessionCode: session.sessionCode, deviceId: payload.deviceId })
+      socketContexts.set(socket.id, { sessionCode: session.sessionCode, deviceId })
       socket.data.sessionCode = session.sessionCode
-      socket.data.deviceId = payload.deviceId
+      socket.data.deviceId = deviceId
 
-      const participant = await updateParticipantPresence(session, payload.deviceId, true)
+      const participant = await updateParticipantPresence(session, deviceId, true)
       socket.emit('session:state', await serializeSession(session))
       if (participant) {
         broadcastToRoom(io, session.sessionCode, 'participant:connected', {

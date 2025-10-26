@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto'
 import type { Server as SocketIOServer } from 'socket.io'
 import { redisRest } from './redis.js'
+import { getRoomName } from './socket/rooms.js'
 import {
   type Session,
   type Participant,
@@ -12,8 +13,11 @@ import {
   type FieldNote,
   type SerializedFieldNote,
 } from './types.js'
+import { generateSigningKey } from './auth/hmac.js'
+import { revokeToken } from './auth/jwt.js'
 
-const SESSION_TTL_SECONDS = Number.parseInt(process.env.SESSION_TTL_SECONDS ?? '604800', 10) // default 7 days
+const SESSION_TTL_SECONDS = Number.parseInt(process.env.SESSION_TTL_SECONDS ?? '86400', 10) // default 24 hours
+const PARTICIPANT_INACTIVITY_TTL_SECONDS = Number.parseInt(process.env.PARTICIPANT_INACTIVITY_TTL_SECONDS ?? '3600', 10) // default 1 hour
 const SESSIONS_SET_KEY = 'sessions:codes'
 const SESSION_ID_MAP_KEY = 'sessions:id-map'
 
@@ -45,6 +49,7 @@ function hydrateParticipant(source: Record<string, string>): Participant {
     connected: requireHashField(source, 'connected', 'participant') === 'true',
     joinedAt: requireNumberField(source, 'joinedAt', 'participant'),
     lastSeen: requireNumberField(source, 'lastSeen', 'participant'),
+    tokenId: source.tokenId || null,
   }
 }
 
@@ -77,12 +82,30 @@ export function getSocketIO() {
   return ioInstance
 }
 
-function generateSessionCode(eventSku: string) {
-  const sanitized = eventSku.toUpperCase().replace(/[^A-Z0-9]/g, '')
-  const prefix = sanitized.slice(0, 2) || 'EV'
-  const randomNumber = Number.parseInt(randomBytes(4).toString('hex'), 16)
-  const encoded = randomNumber.toString(36).toUpperCase().padStart(6, '0').slice(-6)
-  return `${prefix}${encoded}`
+function generateSessionCode(): string {
+  // Generate cryptographically secure random code
+  // Format: XXYYYYYY (8 chars total, no hyphen for easier entry)
+  // XX = 2 random uppercase letters (26^2 = 676 combinations)
+  // YYYYYY = 6 random alphanumeric chars (36^6 = ~2.1 billion combinations)
+  // Total entropy: ~60 bits
+
+  const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+  const alphanumeric = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+
+  // Generate prefix (2 letters)
+  const bytes = randomBytes(8)
+  const byte0 = bytes[0]!
+  const byte1 = bytes[1]!
+  const prefix = letters.charAt(byte0 % 26) + letters.charAt(byte1 % 26)
+
+  // Generate suffix (6 alphanumeric)
+  let suffix = ''
+  for (let i = 2; i < 8; i++) {
+    const byte = bytes[i]!
+    suffix += alphanumeric.charAt(byte % 36)
+  }
+
+  return `${prefix}${suffix}`
 }
 
 function sessionEventKey(eventSku: string) {
@@ -105,6 +128,10 @@ function otpHashKey(sessionCode: string) {
   return `session:${sessionCode}:otps`
 }
 
+function signingKeyKey(sessionCode: string, deviceId: string) {
+  return `session:${sessionCode}:signing-key:${deviceId}`
+}
+
 function fieldNoteSequenceKey(sessionCode: string) {
   return `session:${sessionCode}:fieldnotes:seq`
 }
@@ -117,7 +144,7 @@ function fieldNoteItemKey(sessionCode: string, noteId: number) {
   return `session:${sessionCode}:fieldnote:${noteId}`
 }
 
-async function touchSession(sessionCode: string) {
+export async function touchSession(sessionCode: string) {
   await Promise.all([
     redisRest.expire(sessionMetaKey(sessionCode), SESSION_TTL_SECONDS),
     redisRest.expire(participantsSetKey(sessionCode), SESSION_TTL_SECONDS),
@@ -169,7 +196,7 @@ export async function ensureSession(eventSku: string): Promise<Session> {
 
   const session: Session = {
     id: randomUUID(),
-    sessionCode: generateSessionCode(key),
+    sessionCode: generateSessionCode(),
     eventSku: key,
     createdAt: Date.now(),
     judgeAdvisorDeviceId: null,
@@ -207,7 +234,7 @@ export async function getParticipantByDevice(session: Session, deviceId: string)
   return findParticipantData(session.sessionCode, deviceId)
 }
 
-async function saveParticipant(session: Session, participant: Participant) {
+async function saveParticipant(session: Session, participant: Participant, skipTouch = false) {
   await redisRest.hset(participantKey(session.sessionCode, participant.deviceId), {
     id: participant.id,
     deviceId: participant.deviceId,
@@ -216,24 +243,38 @@ async function saveParticipant(session: Session, participant: Participant) {
     connected: String(participant.connected),
     joinedAt: participant.joinedAt,
     lastSeen: participant.lastSeen,
+    tokenId: participant.tokenId ?? '',
   })
   await redisRest.sadd(participantsSetKey(session.sessionCode), participant.deviceId)
-  await touchSession(session.sessionCode)
+  if (!skipTouch) {
+    await touchSession(session.sessionCode)
+  }
 }
 
-export async function assignJudgeAdvisor(eventSku: string, deviceId: string, displayName: string): Promise<{ session: Session; participant: Participant }> {
-  const session = await ensureSession(eventSku)
+export async function assignJudgeAdvisor(
+  session: Session,
+  deviceId: string,
+  displayName: string,
+  tokenId: string,
+  skipTouch = false,
+): Promise<Participant> {
+  await removeDeviceFromOtherSessions(deviceId, session.sessionCode)
   session.judgeAdvisorDeviceId = deviceId
   await redisRest.hset(sessionMetaKey(session.sessionCode), { judgeAdvisorDeviceId: deviceId })
 
   let participant = await findParticipantData(session.sessionCode, deviceId)
   if (participant) {
+    // Revoke old token if exists
+    if (participant.tokenId) {
+      await revokeToken(participant.tokenId)
+    }
     participant = {
       ...participant,
       displayName,
       role: 'judge_advisor',
       connected: true,
       lastSeen: Date.now(),
+      tokenId,
     }
   } else {
     const now = Date.now()
@@ -245,35 +286,53 @@ export async function assignJudgeAdvisor(eventSku: string, deviceId: string, dis
       connected: true,
       joinedAt: now,
       lastSeen: now,
+      tokenId,
     }
   }
 
-  await saveParticipant(session, participant)
-  return { session, participant }
+  await saveParticipant(session, participant, skipTouch)
+  return participant
 }
 
-export async function addParticipant(session: Session, deviceId: string, displayName: string, role: JudgingRole, connected = true): Promise<Participant> {
+export async function addParticipant(
+  session: Session,
+  deviceId: string,
+  displayName: string,
+  role: JudgingRole,
+  tokenId: string,
+  connected = true,
+  skipTouch = false,
+): Promise<Participant> {
+  await removeDeviceFromOtherSessions(deviceId, session.sessionCode)
   const existing = await findParticipantData(session.sessionCode, deviceId)
+
+  // Revoke old token if participant already exists
+  if (existing?.tokenId) {
+    await revokeToken(existing.tokenId)
+  }
+
   const now = Date.now()
   const participant: Participant = existing
     ? {
-        ...existing,
-        displayName,
-        role,
-        connected,
-        lastSeen: now,
-      }
+      ...existing,
+      displayName,
+      role,
+      connected,
+      lastSeen: now,
+      tokenId,
+    }
     : {
-        id: randomUUID(),
-        deviceId,
-        displayName,
-        role,
-        connected,
-        joinedAt: now,
-        lastSeen: now,
-      }
+      id: randomUUID(),
+      deviceId,
+      displayName,
+      role,
+      connected,
+      joinedAt: now,
+      lastSeen: now,
+      tokenId,
+    }
 
-  await saveParticipant(session, participant)
+  await saveParticipant(session, participant, skipTouch)
   return participant
 }
 
@@ -281,7 +340,59 @@ export async function listParticipants(session: Session): Promise<Participant[]>
   const deviceIds = await redisRest.smembers<string[]>(participantsSetKey(session.sessionCode))
   if (!deviceIds || deviceIds.length === 0) return []
   const participants = await Promise.all(deviceIds.map((deviceId) => findParticipantData(session.sessionCode, deviceId)))
-  return participants.filter((p): p is Participant => Boolean(p))
+  const validParticipants = participants.filter((p): p is Participant => Boolean(p))
+
+  // Clean up stale and legacy participants before returning
+  return cleanupStaleParticipants(session, validParticipants)
+}
+
+/**
+ * Remove stale and legacy participants from a session
+ * - Legacy participants: Missing tokenId (created before JWT update)
+ * - Stale participants: Inactive for longer than PARTICIPANT_INACTIVITY_TTL_SECONDS
+ */
+async function cleanupStaleParticipants(session: Session, participants: Participant[]): Promise<Participant[]> {
+  const now = Date.now()
+  const inactivityThreshold = now - (PARTICIPANT_INACTIVITY_TTL_SECONDS * 1000)
+
+  const participantsToRemove: Participant[] = []
+  const participantsToKeep: Participant[] = []
+
+  for (const participant of participants) {
+    const isLegacy = !participant.tokenId
+    const isStale = participant.lastSeen < inactivityThreshold
+
+    if (isLegacy || isStale) {
+      participantsToRemove.push(participant)
+    } else {
+      participantsToKeep.push(participant)
+    }
+  }
+
+  // Remove stale/legacy participants
+  if (participantsToRemove.length > 0) {
+    console.log(`Cleaning up ${participantsToRemove.length} stale/legacy participants from session ${session.sessionCode}`)
+
+    await Promise.all(
+      participantsToRemove.map(async (participant) => {
+        // Revoke token if exists
+        if (participant.tokenId) {
+          await revokeToken(participant.tokenId)
+        }
+
+        // Delete participant data
+        await redisRest.del(participantKey(session.sessionCode, participant.deviceId))
+        await redisRest.srem(participantsSetKey(session.sessionCode), participant.deviceId)
+
+        // Delete signing key
+        await redisRest.del(signingKeyKey(session.sessionCode, participant.deviceId))
+
+        console.log(`  - Removed ${participant.tokenId ? 'stale' : 'legacy'} participant: ${participant.displayName} (${participant.deviceId})`)
+      }),
+    )
+  }
+
+  return participantsToKeep
 }
 
 export async function setParticipantRole(session: Session, deviceId: string, role: JudgingRole): Promise<Participant | null> {
@@ -305,6 +416,7 @@ export async function updateJudgeAdvisor(session: Session, deviceId: string | nu
 const OTP_HASH_FIELD = 'otp'
 
 export async function createOtpForSession(session: Session, deviceId: string, displayName: string, requestedRole: 'judge' | 'viewer'): Promise<PendingOtp> {
+  await removePendingOtpsForDevice(deviceId)
   const otp = Math.floor(100000 + Math.random() * 900000).toString()
   const now = Date.now()
   const pending: PendingOtp = {
@@ -314,7 +426,7 @@ export async function createOtpForSession(session: Session, deviceId: string, di
     displayName,
     requestedRole,
     createdAt: now,
-    expiresAt: now + 15 * 60 * 1000,
+    expiresAt: now + 60 * 1000, // 60 seconds
   }
 
   await redisRest.hset(otpHashKey(session.sessionCode), {
@@ -327,13 +439,14 @@ export async function createOtpForSession(session: Session, deviceId: string, di
 export async function listPendingOtps(sessionId: string): Promise<PendingOtp[]> {
   const session = await getSessionById(sessionId)
   if (!session) return []
-  const raw = await redisRest.hgetall<Record<string, string>>(otpHashKey(session.sessionCode))
+  const raw = await redisRest.hgetall<Record<string, any>>(otpHashKey(session.sessionCode))
   if (!raw || Object.keys(raw).length === 0) return []
   const now = Date.now()
   const results: PendingOtp[] = []
   for (const [otp, payload] of Object.entries(raw)) {
     if (!payload) continue
-    const parsed = JSON.parse(payload) as PendingOtp
+    // Upstash SDK auto-parses JSON, payload is already an object
+    const parsed = (typeof payload === 'string' ? JSON.parse(payload) : payload) as PendingOtp
     if (parsed.expiresAt < now) {
       await redisRest.hdel(otpHashKey(session.sessionCode), otp)
       continue
@@ -345,11 +458,14 @@ export async function listPendingOtps(sessionId: string): Promise<PendingOtp[]> 
 
 export async function consumeOtp(code: string): Promise<PendingOtp | null> {
   const sessions = await redisRest.smembers<string[]>(SESSIONS_SET_KEY)
+  console.log(`Sessions: ${sessions} `);
   if (!sessions) return null
   for (const sessionCode of sessions) {
     const payload = await redisRest.hget<string | null>(otpHashKey(sessionCode), code)
+    console.log(`Payload: ${payload} `);
     if (payload) {
-      const parsed = JSON.parse(payload) as PendingOtp
+      // Upstash SDK auto-parses JSON, payload is already an object
+      const parsed = (typeof payload === 'string' ? JSON.parse(payload) : payload) as PendingOtp
       await redisRest.hdel(otpHashKey(sessionCode), code)
       return parsed
     }
@@ -362,12 +478,13 @@ export async function clearExpiredOtps(): Promise<void> {
   if (!sessions || sessions.length === 0) return
   const now = Date.now()
   await Promise.all(sessions.map(async (sessionCode) => {
-    const raw = await redisRest.hgetall<Record<string, string>>(otpHashKey(sessionCode))
+    const raw = await redisRest.hgetall<Record<string, any>>(otpHashKey(sessionCode))
     if (!raw) return
     const expired: string[] = []
     for (const [otp, payload] of Object.entries(raw)) {
       if (!payload) continue
-      const parsed = JSON.parse(payload) as PendingOtp
+      // Upstash SDK auto-parses JSON, payload is already an object
+      const parsed = (typeof payload === 'string' ? JSON.parse(payload) : payload) as PendingOtp
       if (parsed.expiresAt < now) {
         expired.push(otp)
       }
@@ -376,6 +493,79 @@ export async function clearExpiredOtps(): Promise<void> {
       await redisRest.hdel(otpHashKey(sessionCode), ...expired)
     }
   }))
+}
+
+async function removePendingOtpsForDevice(deviceId: string) {
+  const sessions = await redisRest.smembers<string[]>(SESSIONS_SET_KEY)
+  if (!sessions || sessions.length === 0) return
+
+  await Promise.all(
+    sessions.map(async (sessionCode) => {
+      const raw = await redisRest.hgetall<Record<string, string>>(otpHashKey(sessionCode))
+      if (!raw || Object.keys(raw).length === 0) return
+
+      const toRemove: string[] = []
+      for (const [otp, payload] of Object.entries(raw)) {
+        if (!payload) continue
+        try {
+          const parsed = JSON.parse(payload) as PendingOtp
+          if (parsed.deviceId === deviceId) {
+            toRemove.push(otp)
+          }
+        } catch (error) {
+          // Ignore malformed payloads; they will be cleaned up elsewhere.
+        }
+      }
+
+      if (toRemove.length > 0) {
+        await redisRest.hdel(otpHashKey(sessionCode), ...toRemove)
+      }
+    }),
+  )
+}
+
+async function removeDeviceFromOtherSessions(deviceId: string, keepSessionCode: string) {
+  const sessionCodes = await redisRest.smembers<string[]>(SESSIONS_SET_KEY)
+  if (!sessionCodes || sessionCodes.length === 0) {
+    return
+  }
+
+  await Promise.all(
+    sessionCodes
+      .filter((code) => code !== keepSessionCode)
+      .map(async (sessionCode) => {
+        const participant = await findParticipantData(sessionCode, deviceId)
+        if (!participant) return
+
+        if (participant.tokenId) {
+          await revokeToken(participant.tokenId)
+        }
+
+        await redisRest.del(participantKey(sessionCode, deviceId))
+        await redisRest.srem(participantsSetKey(sessionCode), deviceId)
+        await deleteSigningKey(sessionCode, deviceId)
+
+        const metaKey = sessionMetaKey(sessionCode)
+        const currentAdvisor = await redisRest.hget<string | null>(metaKey, 'judgeAdvisorDeviceId')
+        if (currentAdvisor === deviceId) {
+          await redisRest.hset(metaKey, { judgeAdvisorDeviceId: '' })
+        }
+
+        await touchSession(sessionCode)
+        await broadcastSessionState(sessionCode)
+      }),
+  )
+}
+
+async function broadcastSessionState(sessionCode: string) {
+  const io = getSocketIO()
+  if (!io) return
+
+  const session = await readSessionMeta(sessionCode)
+  if (!session) return
+
+  const serialized = await serializeSession(session)
+  io.to(getRoomName(sessionCode)).emit('session:state', serialized)
 }
 
 async function nextFieldNoteId(sessionCode: string) {
@@ -441,6 +631,14 @@ export async function updateFieldNoteResolution(session: Session, noteId: number
 }
 
 export async function removeParticipantByDevice(session: Session, deviceId: string) {
+  // Get participant's tokenId before deletion
+  const participant = await findParticipantData(session.sessionCode, deviceId)
+
+  // Revoke token to immediately log out the participant
+  if (participant?.tokenId) {
+    await revokeToken(participant.tokenId)
+  }
+
   await redisRest.del(participantKey(session.sessionCode, deviceId))
   await redisRest.srem(participantsSetKey(session.sessionCode), deviceId)
   await touchSession(session.sessionCode)
@@ -456,6 +654,20 @@ export async function updateParticipantPresence(session: Session, deviceId: stri
   }
   await saveParticipant(session, updated)
   return updated
+}
+
+export async function storeSigningKey(sessionCode: string, deviceId: string, sessionId: string): Promise<string> {
+  const signingKey = generateSigningKey(sessionId)
+  await redisRest.set(signingKeyKey(sessionCode, deviceId), signingKey, { ex: SESSION_TTL_SECONDS })
+  return signingKey
+}
+
+export async function getSigningKeyByDeviceId(sessionCode: string, deviceId: string): Promise<string | null> {
+  return await redisRest.get<string | null>(signingKeyKey(sessionCode, deviceId))
+}
+
+export async function deleteSigningKey(sessionCode: string, deviceId: string): Promise<void> {
+  await redisRest.del(signingKeyKey(sessionCode, deviceId))
 }
 
 async function listFieldNotes(session: Session): Promise<FieldNote[]> {

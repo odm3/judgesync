@@ -3,11 +3,12 @@
   "version": "1.0.0",
   "description": "",
   "type": "module",
-  "main": "dist/server.js",
+  "main": "dist/src/server.js",
   "scripts": {
-    "dev": "npm run build && node dist/server.js",
+    "dev": "npm run build && node dist/src/server.js",
     "build": "tsc --project tsconfig.json",
-    "start": "node dist/server.js",
+    "start": "node dist/src/server.js",
+    "flush-redis": "npm run build && node dist/scripts/flush-redis.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
