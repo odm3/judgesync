@@ -28,6 +28,7 @@ import {
   updateParticipantRole,
   removeParticipant,
 } from '@/services/sharing'
+import { createConflict } from '@/services/judging'
 import { getDeviceId } from '@/lib/device'
 
 interface ManagePageProps {
@@ -82,6 +83,7 @@ export function ManagePage({ event }: ManagePageProps) {
   const [joinDisplayName, setJoinDisplayName] = useState('')
   const [joinLoading, setJoinLoading] = useState(false)
   const [otpInfo, setOtpInfo] = useState<{ otp: string; expiresAt: number } | null>(null)
+  const [joinConflicts, setJoinConflicts] = useState<string[]>([])
   const [inviteModalOpen, setInviteModalOpen] = useState(false)
   const [inviteOtp, setInviteOtp] = useState('')
   const [inviteLoading, setInviteLoading] = useState(false)
@@ -346,6 +348,24 @@ export function ManagePage({ event }: ManagePageProps) {
         setSessionInfo(normalized)
         setJoinDisplayName(participant.displayName)
         setJoinRole(participant.role)
+
+        // Create conflicts of interest if any were selected
+        if (joinConflicts.length > 0 && normalized.sessionCode) {
+          for (const teamNumber of joinConflicts) {
+            try {
+              await createConflict(normalized.sessionCode, {
+                judgeDeviceId: deviceId,
+                teamNumber,
+                reason: 'Self-reported during join',
+              })
+            } catch (conflictError) {
+              console.error('Failed to create conflict:', conflictError)
+            }
+          }
+          // Clear conflicts after creating them
+          setJoinConflicts([])
+        }
+
         pushToast({
           title: 'Connected',
           description: `You are now part of the session as ${displayRoleFor(participant.role)}.`,
@@ -471,6 +491,9 @@ export function ManagePage({ event }: ManagePageProps) {
           onCheckStatus={handleCheckStatus}
           eventName={event.name}
           hasJoined={hasJoinedSession}
+          teams={event.teams}
+          conflicts={joinConflicts}
+          setConflicts={setJoinConflicts}
         />
 
         <FieldNotesSection
@@ -671,6 +694,9 @@ interface JoinSessionCardProps {
   onCheckStatus: () => void
   eventName: string
   hasJoined: boolean
+  teams: Team[]
+  conflicts: string[]
+  setConflicts: (conflicts: string[]) => void
 }
 
 function JoinSessionCard({
@@ -687,6 +713,9 @@ function JoinSessionCard({
   onCheckStatus,
   eventName,
   hasJoined,
+  teams,
+  conflicts,
+  setConflicts,
 }: JoinSessionCardProps) {
   if (role === 'judge_advisor' || hasJoined) {
     return null
@@ -748,6 +777,59 @@ function JoinSessionCard({
               ))}
             </select>
           </div>
+
+          {joinRole === 'judge' && (
+            <div className="space-y-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Conflicts of Interest (Optional)
+              </p>
+              <p className="text-xs text-muted-foreground/70">
+                Select any teams you are affiliated with (coach, mentor, parent, etc.)
+              </p>
+              <div className="max-h-48 overflow-y-auto rounded-xl border border-white/10 bg-card/80 p-2">
+                {teams.map((team) => {
+                  const isSelected = conflicts.includes(team.number)
+                  return (
+                    <label
+                      key={team.number}
+                      className={[
+                        'flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm transition',
+                        isSelected
+                          ? 'bg-red-500/20 text-foreground'
+                          : 'hover:bg-white/5 text-muted-foreground',
+                      ].join(' ')}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setConflicts([...conflicts, team.number])
+                          } else {
+                            setConflicts(conflicts.filter((t) => t !== team.number))
+                          }
+                        }}
+                        className="h-4 w-4 rounded border-white/20 bg-card text-primary"
+                      />
+                      <span className="flex-1">
+                        <span className="font-mono font-semibold">{team.number}</span>
+                        {team.team_name && (
+                          <span className="ml-2 text-xs text-muted-foreground">
+                            {team.team_name}
+                          </span>
+                        )}
+                      </span>
+                    </label>
+                  )
+                })}
+              </div>
+              {conflicts.length > 0 && (
+                <p className="text-xs text-red-400">
+                  {conflicts.length} conflict{conflicts.length !== 1 ? 's' : ''} selected
+                </p>
+              )}
+            </div>
+          )}
 
           <div className="flex flex-wrap items-center gap-3">
             <button

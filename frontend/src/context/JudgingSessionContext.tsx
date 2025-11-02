@@ -23,6 +23,16 @@ interface JudgingSessionContextValue {
   isJudgeAdvisor: boolean
   hasJudgeAccess: boolean
   canManageFieldNotes: boolean
+  // Judging System
+  judgeTeams: JudgeTeam[]
+  teamAssignments: TeamAssignment[]
+  conflicts: ConflictOfInterest[]
+  notebookScores: NotebookScore[]
+  interviewScores: InterviewScore[]
+  nominations: TeamNomination[]
+  timer: TimerSettings | null
+  teamPhotos: TeamPhoto[]
+  judgingNotes: TeamJudgingNote[]
   setRole: (role: JudgingRole) => void
   setSessionCode: (code: string | null) => void
   setSessionInfo: (info: SharingSessionInfo | null) => void
@@ -83,6 +93,112 @@ export interface SharingFieldNote {
   updatedAt: number
 }
 
+// Judging System Types
+export interface JudgeTeam {
+  id: string
+  sessionId: string
+  name: string
+  judgeDeviceIds: string[]
+  createdAt: number
+  updatedAt: number
+}
+
+export interface TeamAssignment {
+  id: string
+  sessionId: string
+  judgeTeamId: string
+  teamNumber: string
+  createdAt: number
+}
+
+export interface ConflictOfInterest {
+  id: string
+  sessionId: string
+  judgeDeviceId: string
+  teamNumber: string
+  reason?: string
+  createdBy: 'judge' | 'judge_advisor'
+  createdAt: number
+}
+
+export interface NotebookScore {
+  id: string
+  sessionId: string
+  judgeTeamId: string
+  teamNumber: string
+  scores: Record<string, number>
+  totalScore: number
+  notes?: string
+  gradeLevel?: 'ES' | 'MS' | 'HS' | 'University'
+  judgeName?: string
+  digitalNotebookUrl?: string
+  createdAt: number
+  updatedAt: number
+  createdBy: string
+}
+
+export interface InterviewScore {
+  id: string
+  sessionId: string
+  judgeTeamId: string
+  teamNumber: string
+  scores: Record<string, number>
+  totalScore: number
+  notes?: string
+  gradeLevel?: 'ES' | 'MS' | 'HS' | 'University'
+  judgeName?: string
+  specialAttributes?: string
+  interviewDuration?: number
+  createdAt: number
+  updatedAt: number
+  createdBy: string
+}
+
+export interface TeamNomination {
+  id: string
+  sessionId: string
+  judgeTeamId: string
+  teamNumber: string
+  awardCategory: string
+  notes?: string
+  createdAt: number
+  createdBy: string
+}
+
+export interface TimerSettings {
+  sessionId: string
+  defaultDuration: number
+  currentDuration: number
+  isRunning: boolean
+  isPaused: boolean
+  startedAt?: number
+  pausedAt?: number
+  updatedAt: number
+  updatedBy: string
+}
+
+export interface TeamPhoto {
+  id: string
+  sessionId: string
+  teamNumber: string
+  judgeTeamId?: string
+  url: string
+  caption?: string
+  createdAt: number
+  createdBy: string
+}
+
+export interface TeamJudgingNote {
+  id: string
+  sessionId: string
+  judgeTeamId: string
+  teamNumber: string
+  content: string
+  createdAt: number
+  updatedAt: number
+  createdBy: string
+}
+
 export function normalizeSharingSession(session: SharingSessionInfo): SharingSessionInfo {
   const participantMap = new Map<string, SharingParticipant>()
   for (const participant of session.participants ?? []) {
@@ -128,6 +244,17 @@ export function JudgingSessionProvider({ children }: { children: React.ReactNode
   const [sessionInfo, setSessionInfoState] = useState<SharingSessionInfo | null>(null)
   const [socketConnected, setSocketConnected] = useState(false)
   const deviceId = useMemo(() => getDeviceId(), [])
+
+  // Judging System State
+  const [judgeTeams, setJudgeTeams] = useState<JudgeTeam[]>([])
+  const [teamAssignments, setTeamAssignments] = useState<TeamAssignment[]>([])
+  const [conflicts, setConflicts] = useState<ConflictOfInterest[]>([])
+  const [notebookScores, setNotebookScores] = useState<NotebookScore[]>([])
+  const [interviewScores, setInterviewScores] = useState<InterviewScore[]>([])
+  const [nominations, setNominations] = useState<TeamNomination[]>([])
+  const [timer, setTimer] = useState<TimerSettings | null>(null)
+  const [teamPhotos, setTeamPhotos] = useState<TeamPhoto[]>([])
+  const [judgingNotes, setJudgingNotes] = useState<TeamJudgingNote[]>([])
 
   useEffect(() => {
     try {
@@ -248,6 +375,91 @@ export function JudgingSessionProvider({ children }: { children: React.ReactNode
       upsertFieldNote(payload.fieldNote)
     }
 
+    // Judging System Event Handlers
+    const handleJudgeTeamCreated = (payload: { judgeTeam: JudgeTeam }) => {
+      setJudgeTeams((prev) => [payload.judgeTeam, ...prev.filter((t) => t.id !== payload.judgeTeam.id)])
+    }
+
+    const handleJudgeTeamUpdated = (payload: { judgeTeam: JudgeTeam }) => {
+      setJudgeTeams((prev) => prev.map((t) => (t.id === payload.judgeTeam.id ? payload.judgeTeam : t)))
+    }
+
+    const handleJudgeTeamDeleted = (payload: { teamId: string }) => {
+      setJudgeTeams((prev) => prev.filter((t) => t.id !== payload.teamId))
+    }
+
+    const handleTeamAssignmentCreated = (payload: { assignment: TeamAssignment }) => {
+      setTeamAssignments((prev) => [payload.assignment, ...prev.filter((a) => a.id !== payload.assignment.id)])
+    }
+
+    const handleTeamAssignmentDeleted = (payload: { assignmentId: string }) => {
+      setTeamAssignments((prev) => prev.filter((a) => a.id !== payload.assignmentId))
+    }
+
+    const handleConflictCreated = (payload: { conflict: ConflictOfInterest }) => {
+      setConflicts((prev) => [payload.conflict, ...prev.filter((c) => c.id !== payload.conflict.id)])
+    }
+
+    const handleConflictDeleted = (payload: { conflictId: string }) => {
+      setConflicts((prev) => prev.filter((c) => c.id !== payload.conflictId))
+    }
+
+    const handleNotebookScoreCreated = (payload: { score: NotebookScore }) => {
+      setNotebookScores((prev) => [payload.score, ...prev.filter((s) => s.id !== payload.score.id)])
+    }
+
+    const handleNotebookScoreUpdated = (payload: { score: NotebookScore }) => {
+      setNotebookScores((prev) => prev.map((s) => (s.id === payload.score.id ? payload.score : s)))
+    }
+
+    const handleNotebookScoreDeleted = (payload: { scoreId: string }) => {
+      setNotebookScores((prev) => prev.filter((s) => s.id !== payload.scoreId))
+    }
+
+    const handleInterviewScoreCreated = (payload: { score: InterviewScore }) => {
+      setInterviewScores((prev) => [payload.score, ...prev.filter((s) => s.id !== payload.score.id)])
+    }
+
+    const handleInterviewScoreUpdated = (payload: { score: InterviewScore }) => {
+      setInterviewScores((prev) => prev.map((s) => (s.id === payload.score.id ? payload.score : s)))
+    }
+
+    const handleInterviewScoreDeleted = (payload: { scoreId: string }) => {
+      setInterviewScores((prev) => prev.filter((s) => s.id !== payload.scoreId))
+    }
+
+    const handleNominationCreated = (payload: { nomination: TeamNomination }) => {
+      setNominations((prev) => [payload.nomination, ...prev.filter((n) => n.id !== payload.nomination.id)])
+    }
+
+    const handleNominationDeleted = (payload: { nominationId: string }) => {
+      setNominations((prev) => prev.filter((n) => n.id !== payload.nominationId))
+    }
+
+    const handleTimerUpdated = (payload: { timer: TimerSettings }) => {
+      setTimer(payload.timer)
+    }
+
+    const handleTeamPhotoCreated = (payload: { photo: TeamPhoto }) => {
+      setTeamPhotos((prev) => [payload.photo, ...prev.filter((p) => p.id !== payload.photo.id)])
+    }
+
+    const handleTeamPhotoDeleted = (payload: { photoId: string }) => {
+      setTeamPhotos((prev) => prev.filter((p) => p.id !== payload.photoId))
+    }
+
+    const handleJudgingNoteCreated = (payload: { note: TeamJudgingNote }) => {
+      setJudgingNotes((prev) => [payload.note, ...prev.filter((n) => n.id !== payload.note.id)])
+    }
+
+    const handleJudgingNoteUpdated = (payload: { note: TeamJudgingNote }) => {
+      setJudgingNotes((prev) => prev.map((n) => (n.id === payload.note.id ? payload.note : n)))
+    }
+
+    const handleJudgingNoteDeleted = (payload: { noteId: string }) => {
+      setJudgingNotes((prev) => prev.filter((n) => n.id !== payload.noteId))
+    }
+
     const handleParticipantRole = (payload: { participant: SharingParticipant; session: SharingSessionInfo }) => {
       mergeParticipant(payload.participant)
       setSessionInfoState(normalizeSharingSession(payload.session))
@@ -295,6 +507,30 @@ export function JudgingSessionProvider({ children }: { children: React.ReactNode
     socketService.on('otp:rejected', handleOtpRejected)
     socketService.on('field_note:created', handleFieldNoteCreated)
     socketService.on('field_note:updated', handleFieldNoteUpdated)
+
+    // Judging System Events
+    socketService.on('judge_team:created', handleJudgeTeamCreated)
+    socketService.on('judge_team:updated', handleJudgeTeamUpdated)
+    socketService.on('judge_team:deleted', handleJudgeTeamDeleted)
+    socketService.on('team_assignment:created', handleTeamAssignmentCreated)
+    socketService.on('team_assignment:deleted', handleTeamAssignmentDeleted)
+    socketService.on('conflict:created', handleConflictCreated)
+    socketService.on('conflict:deleted', handleConflictDeleted)
+    socketService.on('notebook_score:created', handleNotebookScoreCreated)
+    socketService.on('notebook_score:updated', handleNotebookScoreUpdated)
+    socketService.on('notebook_score:deleted', handleNotebookScoreDeleted)
+    socketService.on('interview_score:created', handleInterviewScoreCreated)
+    socketService.on('interview_score:updated', handleInterviewScoreUpdated)
+    socketService.on('interview_score:deleted', handleInterviewScoreDeleted)
+    socketService.on('nomination:created', handleNominationCreated)
+    socketService.on('nomination:deleted', handleNominationDeleted)
+    socketService.on('timer:updated', handleTimerUpdated)
+    socketService.on('team_photo:created', handleTeamPhotoCreated)
+    socketService.on('team_photo:deleted', handleTeamPhotoDeleted)
+    socketService.on('judging_note:created', handleJudgingNoteCreated)
+    socketService.on('judging_note:updated', handleJudgingNoteUpdated)
+    socketService.on('judging_note:deleted', handleJudgingNoteDeleted)
+
     socketService.onConnect(handleConnect)
     socketService.onDisconnect(handleDisconnect)
 
@@ -314,6 +550,30 @@ export function JudgingSessionProvider({ children }: { children: React.ReactNode
       socketService.off('otp:rejected', handleOtpRejected)
       socketService.off('field_note:created', handleFieldNoteCreated)
       socketService.off('field_note:updated', handleFieldNoteUpdated)
+
+      // Judging System Events Cleanup
+      socketService.off('judge_team:created', handleJudgeTeamCreated)
+      socketService.off('judge_team:updated', handleJudgeTeamUpdated)
+      socketService.off('judge_team:deleted', handleJudgeTeamDeleted)
+      socketService.off('team_assignment:created', handleTeamAssignmentCreated)
+      socketService.off('team_assignment:deleted', handleTeamAssignmentDeleted)
+      socketService.off('conflict:created', handleConflictCreated)
+      socketService.off('conflict:deleted', handleConflictDeleted)
+      socketService.off('notebook_score:created', handleNotebookScoreCreated)
+      socketService.off('notebook_score:updated', handleNotebookScoreUpdated)
+      socketService.off('notebook_score:deleted', handleNotebookScoreDeleted)
+      socketService.off('interview_score:created', handleInterviewScoreCreated)
+      socketService.off('interview_score:updated', handleInterviewScoreUpdated)
+      socketService.off('interview_score:deleted', handleInterviewScoreDeleted)
+      socketService.off('nomination:created', handleNominationCreated)
+      socketService.off('nomination:deleted', handleNominationDeleted)
+      socketService.off('timer:updated', handleTimerUpdated)
+      socketService.off('team_photo:created', handleTeamPhotoCreated)
+      socketService.off('team_photo:deleted', handleTeamPhotoDeleted)
+      socketService.off('judging_note:created', handleJudgingNoteCreated)
+      socketService.off('judging_note:updated', handleJudgingNoteUpdated)
+      socketService.off('judging_note:deleted', handleJudgingNoteDeleted)
+
       socketService.offConnect(handleConnect)
       socketService.offDisconnect(handleDisconnect)
     }
@@ -358,13 +618,37 @@ export function JudgingSessionProvider({ children }: { children: React.ReactNode
       isJudgeAdvisor,
       hasJudgeAccess: isJudge,
       canManageFieldNotes,
+      // Judging System
+      judgeTeams,
+      teamAssignments,
+      conflicts,
+      notebookScores,
+      interviewScores,
+      nominations,
+      timer,
+      teamPhotos,
+      judgingNotes,
       setRole,
       setSessionCode,
       setSessionInfo,
       approveJoinRequest,
       resetSession,
     }
-  }, [role, sessionCode, sessionInfo, socketConnected])
+  }, [
+    role,
+    sessionCode,
+    sessionInfo,
+    socketConnected,
+    judgeTeams,
+    teamAssignments,
+    conflicts,
+    notebookScores,
+    interviewScores,
+    nominations,
+    timer,
+    teamPhotos,
+    judgingNotes,
+  ])
 
   return (
     <JudgingSessionContext.Provider value={value}>

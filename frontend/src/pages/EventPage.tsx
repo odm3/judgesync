@@ -5,6 +5,7 @@ import type { EventData } from '@/types/robotevents'
 import { Tabs } from '@/components/ui/Tabs'
 import { TeamsPage } from './TeamsPage'
 import { ManagePage } from './ManagePage'
+import { JudgeAdminPage } from './JudgeAdminPage'
 import { Spinner } from '@/components/ui/Spinner'
 import {
   AlertCircle,
@@ -16,15 +17,18 @@ import {
   CalendarClock,
   ArrowLeft,
   Trophy,
+  Shield,
 } from 'lucide-react'
 import { AwardsPage } from './AwardsPage'
 import { TeamDetailsPage } from './TeamDetailsPage'
 import { EventSchedulePage } from './EventSchedulePage'
 import { EventSkillsPage } from './EventSkillsPage'
+import { useJudgingSession } from '@/context/JudgingSessionContext'
 
 export function EventPage() {
   const { sku } = useParams<{ sku: string }>()
   const navigate = useNavigate()
+  const { isJudgeAdvisor } = useJudgingSession()
   const [event, setEvent] = useState<EventData | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -102,6 +106,15 @@ export function EventPage() {
       path: `/${sku}/awards`,
       icon: <AwardIcon className="h-4 w-4" />,
     },
+    ...(isJudgeAdvisor
+      ? [
+          {
+            label: 'Judge Admin',
+            path: `/${sku}/judge-admin`,
+            icon: <Shield className="h-4 w-4" />,
+          },
+        ]
+      : []),
     {
       label: 'Manage',
       path: `/${sku}/manage`,
@@ -161,6 +174,7 @@ export function EventPage() {
               <Route path="teams" element={<TeamsPage event={event} />} />
               <Route path="team/:teamNumber/*" element={<TeamDetailsPage event={event} />} />
               <Route path="awards" element={<AwardsPage event={event} />} />
+              <Route path="judge-admin" element={<JudgeAdminPage event={event} />} />
               <Route path="manage" element={<ManagePage event={event} />} />
               <Route path="*" element={<Navigate to="schedule" replace />} />
             </Routes>

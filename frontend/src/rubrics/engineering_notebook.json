@@ -1,0 +1,130 @@
+{
+  "name": "Engineering Notebook Rubric",
+  "version": "2025-08-20",
+  "categories": [
+    {
+      "id": "design_process",
+      "name": "Engineering Design Process",
+      "criteria": [
+        {
+          "id": "identify_problem",
+          "name": "Identify the Problem / Design Goal(s)",
+          "maxPoints": 5,
+          "descriptions": {
+            "expert": "Clearly identifies the problem / design goal(s) in detail at the start of each design process cycle. This can include elements of game strategy, robot design, or programming, and should include a clear definition and justification of the design goal(s), criteria, and constraints.",
+            "proficient": "Identifies the problem / design goal(s) at the start of each design cycle but is lacking details or justification.",
+            "emerging": "Does not identify the problem / design goal(s) at the start of each design cycle."
+          }
+        },
+        {
+          "id": "brainstorm_solutions",
+          "name": "Brainstorm Solutions",
+          "maxPoints": 5,
+          "descriptions": {
+            "expert": "Explores several different solutions with explanation. Citations are provided for ideas that came from outside sources such as online videos or other teams.",
+            "proficient": "Explores few solutions. Citations provided for ideas that came from outside sources.",
+            "emerging": "Does not explore different solutions or solutions are recorded with little explanation."
+          }
+        },
+        {
+          "id": "select_solution",
+          "name": "Select Best Solution",
+          "maxPoints": 5,
+          "descriptions": {
+            "expert": "Fully explains the 'why' behind design decisions in each step of the design process for all significant aspects of a team's design.",
+            "proficient": "Inconsistently explains the 'why' behind design decisions.",
+            "emerging": "Minimally explains the 'why' behind design decisions."
+          }
+        },
+        {
+          "id": "build_program",
+          "name": "Build and Program the Solution",
+          "maxPoints": 5,
+          "descriptions": {
+            "expert": "Records the steps the team took to build and program the solution. Includes enough detail that the reader can follow the logic used by the team to develop their robot design, as well as recreate the robot design from the documentation.",
+            "proficient": "Records the key steps to build and program the solution but lacks sufficient detail for the reader to follow their process.",
+            "emerging": "Does not record the key steps to build and program the solution."
+          }
+        },
+        {
+          "id": "original_testing",
+          "name": "Original Testing of Solutions",
+          "maxPoints": 5,
+          "descriptions": {
+            "expert": "Records all the steps to test the solution, including test results. Testing methodology is clearly explained, and the testing is done by the team. Original testing results are explained and conclusions are drawn from that data.",
+            "proficient": "Records the key steps to test the solution. Testing methodology may be incomplete, or incomplete conclusions are recorded.",
+            "emerging": "Does not record steps to test the solution. Testing or results are borrowed from another team's work."
+          }
+        },
+        {
+          "id": "repeat_design",
+          "name": "Repeat Design Process",
+          "maxPoints": 5,
+          "descriptions": {
+            "expert": "Shows that the design process is repeated multiple times to work towards a design goal. This includes a clear definition and justification of the design goal(s), its criteria, and constraints. The notebook shows setbacks that the team learned from, and shows design alternatives that were considered but not pursued.",
+            "proficient": "Design process is not often repeated for design goals or robot/game performance. The notebook does not show alternate lines of inquiry, setbacks, or other learning experiences.",
+            "emerging": "Does not show that the design process is repeated. Does not show setbacks or failures, or seems to be curated to craft a narrative."
+          }
+        }
+      ]
+    },
+    {
+      "id": "notebook_content",
+      "name": "Engineering Notebook Format and Content",
+      "criteria": [
+        {
+          "id": "independent_inquiry",
+          "name": "Independent Inquiry",
+          "maxPoints": 5,
+          "descriptions": {
+            "expert": "Team shows evidence of independent inquiry from the beginning stages of their design process. Notebook documents whether the implemented ideas have their origin with students on the team, or if students found inspiration elsewhere.",
+            "proficient": "Team shows evidence of independent inquiry for some elements of their design process. Ideas and information from outside the team are documented.",
+            "emerging": "Team shows little to no evidence of independent inquiry in their design process. Ideas from outside the team are not properly credited. Ideas or designs appear with no evidence of process."
+          }
+        },
+        {
+          "id": "usability_completeness",
+          "name": "Usability & Completeness",
+          "maxPoints": 5,
+          "descriptions": {
+            "expert": "Records the entire design and development process with enough clarity and detail that the reader could recreate the project's history. Notebook has recent entries that align with the robot the team has brought to the event.",
+            "proficient": "Records the design and development process completely but lacks sufficient detail. Documentation is inconsistent with possible gaps.",
+            "emerging": "Lacks sufficient detail to understand the design process. Notebook has large gaps in time, or does not align with the robot the team has brought to the event."
+          }
+        },
+        {
+          "id": "originality_quality",
+          "name": "Originality & Quality",
+          "maxPoints": 5,
+          "descriptions": {
+            "expert": "Content is kept to relevant information and all content not original to the team longer than a paragraph is located in appendices to the Engineering Notebook. Information originating from outside the team is always properly cited in the notebook with the source and date accessed. Most or all Engineering Notebook content is original to the submitting team members.",
+            "proficient": "Content is mostly kept to relevant information. Information originating from outside the team is properly credited. Cited content is paraphrased with some original content describing the team's design process.",
+            "emerging": "Non-original content is excessive, is not kept in appendices, and/or is not cited. Plagiarised content should be noted to the JA pursuant to the RECF Code of Conduct process."
+          }
+        },
+        {
+          "id": "organization_readability",
+          "name": "Organization / Readability",
+          "maxPoints": 5,
+          "descriptions": {
+            "expert": "Entries are logged in a table of contents. There is an overall organization to the document that makes it easy to reference, such as color coded entries, tabs for key sections, or other markers. Notebook contains little to no extraneous content that does not further the engineering design process.",
+            "proficient": "Entries are logged in a table of contents. There is some organization to the document to enhance readability. Notebook contains some extraneous content that does not further the design process, but it does not severely impact readability.",
+            "emerging": "Entries are not logged in a table of contents, and there is little adherence to a system of organization. Excessive extraneous content makes the notebook difficult to read, use, or understand."
+          }
+        },
+        {
+          "id": "project_management",
+          "name": "Record of Team & Project Management",
+          "maxPoints": 5,
+          "descriptions": {
+            "expert": "Provides a complete record of team and project assignments; contains team meeting notes including goals, decisions, and building/programming accomplishments; design cycles are easily identified. Resource constraints including time and materials are noted throughout. Notebook has evidence that documentation was done in sequence with the design process. Entries include dates and names of contributing students.",
+            "proficient": "Records most of the information listed at the left. Level of detail is inconsistent, or some aspects are missing. There are significant gaps in the overall record of the design process. Notebook may have inconsistent evidence of dates of entries and student contributions.",
+            "emerging": "Does not record the design process in a way that shows team progress. There are significant gaps or missing information for key design aspects. Notebook has little evidence of dates of entries and student contributions."
+          }
+        }
+      ]
+    }
+  ],
+  "totalMaxPoints": 55,
+  "notes": "This rubric is to be used for all Engineering Notebooks regardless of format (physical or digital). Any student-centered or academic honesty concerns, such as plagiarism, should be brought to the attention of the Judge Advisor and/or Event Partner."
+}

@@ -23,6 +23,39 @@ import {
   storeSigningKey,
   deleteSigningKey,
   touchSession,
+  // Judging System
+  createJudgeTeam,
+  listJudgeTeams,
+  getJudgeTeam,
+  updateJudgeTeam,
+  deleteJudgeTeam,
+  createTeamAssignment,
+  listTeamAssignments,
+  deleteTeamAssignment,
+  createConflictOfInterest,
+  listConflictsOfInterest,
+  deleteConflictOfInterest,
+  createNotebookScore,
+  listNotebookScores,
+  updateNotebookScore,
+  deleteNotebookScore,
+  createInterviewScore,
+  listInterviewScores,
+  updateInterviewScore,
+  deleteInterviewScore,
+  createNomination,
+  listNominations,
+  deleteNomination,
+  getTimerSettings,
+  initializeTimer,
+  updateTimer,
+  createTeamPhoto,
+  listTeamPhotos,
+  deleteTeamPhoto,
+  createTeamJudgingNote,
+  listTeamJudgingNotes,
+  updateTeamJudgingNote,
+  deleteTeamJudgingNote,
 } from '../store.js'
 import { getRoomName, broadcastToRoom, broadcastToRole } from '../socket/rooms.js'
 import { generateToken, revokeToken } from '../auth/jwt.js'
@@ -123,14 +156,11 @@ sessionsRoute.post('/', async (c) => {
 })
 
 sessionsRoute.post('/by-sku/:eventSku', async (c) => {
-  console.log("This shit wack");
   const params = sessionBySkuSchema.safeParse(await c.req.json().catch(() => null))
-  console.log(params);
   if (!params.success) {
     return c.json({ error: { code: 'INVALID_REQUEST', message: 'Invalid session payload' } }, 400)
   }
   const eventSku = c.req.param('eventSku')
-  console.log(params);
   const { deviceId, displayName, role } = params.data
 
   if (role === 'judge_advisor') {
@@ -174,7 +204,6 @@ sessionsRoute.post('/by-sku/:eventSku/otp', async (c) => {
   const session = await ensureSession(eventSku)
 
   const body = await c.req.json().catch(() => null)
-  console.log(body);
   const parseResult = otpRequestSchema.safeParse(body)
   if (!parseResult.success) {
     return c.json({ error: { code: 'INVALID_REQUEST', message: 'Invalid OTP payload' } }, 400)
@@ -249,7 +278,6 @@ sessionsRoute.post('/:code/otp', async (c) => {
 
 sessionsRoute.post('/:code/approve', requireAuth, async (c) => {
   const code = c.req.param('code')
-  console.log(`CodeL ${code}`);
   const session = await getSessionByCode(code)
   if (!session) {
     return c.json({ error: { code: 'SESSION_NOT_FOUND', message: 'Session not found' } }, 404)
@@ -259,14 +287,11 @@ sessionsRoute.post('/:code/approve', requireAuth, async (c) => {
   const advisorDeviceId = auth.deviceId
 
   const body = await c.req.json().catch(() => null)
-  console.log(body);
   const parseResult = z.object({ otp: z.string().length(6) }).safeParse(body)
-  console.log(parseResult);
   if (!parseResult.success) {
     return c.json({ error: { code: 'INVALID_REQUEST', message: 'Invalid approval payload' } }, 400)
   }
   const { otp } = parseResult.data
-  console.log(`OTP: ${otp}`);
   // Verify that the authenticated user is the judge advisor
   if (!session.judgeAdvisorDeviceId) {
     session.judgeAdvisorDeviceId = advisorDeviceId
@@ -569,6 +594,825 @@ sessionsRoute.patch('/:code/field-notes/:noteId', requireAuth, requireSignature,
     session: serializedSession,
   })
 })
+
+// ============================================================================
+// JUDGING SYSTEM ROUTES
+// ============================================================================
+
+const JUDGING_ALLOWED_ROLES = new Set(['judge', 'judge_advisor'])
+
+// Judge Teams
+sessionsRoute.post('/:code/judge-teams', requireAuth, requireSignature, async (c) => {
+  const code = c.req.param('code')
+  const session = await getSessionByCode(code)
+  if (!session) {
+    return c.json({ error: { code: 'SESSION_NOT_FOUND', message: 'Session not found' } }, 404)
+  }
+
+  const auth = getAuth(c)
+  const participant = await getParticipantByDevice(session, auth.deviceId)
+  if (!participant || participant.role !== 'judge_advisor') {
+    return c.json({ error: { code: 'FORBIDDEN', message: 'Only judge advisor can create judge teams' } }, 403)
+  }
+
+  const body = await c.req.json().catch(() => null)
+  const schema = z.object({
+    name: z.string().min(1),
+    judgeDeviceIds: z.array(z.string()),
+  })
+  const parseResult = schema.safeParse(body)
+  if (!parseResult.success) {
+    return c.json({ error: { code: 'INVALID_REQUEST', message: 'Invalid judge team payload' } }, 400)
+  }
+
+  const judgeTeam = await createJudgeTeam(session, parseResult.data.name, parseResult.data.judgeDeviceIds)
+
+  const io = getSocketIO()
+  if (io) {
+    io.to(getRoomName(session.sessionCode)).emit('judge_team:created', { judgeTeam })
+  }
+
+  return c.json({ judgeTeam })
+})
+
+sessionsRoute.get('/:code/judge-teams', requireAuth, async (c) => {
+  const code = c.req.param('code')
+  const session = await getSessionByCode(code)
+  if (!session) {
+    return c.json({ error: { code: 'SESSION_NOT_FOUND', message: 'Session not found' } }, 404)
+  }
+
+  const judgeTeams = await listJudgeTeams(session)
+  return c.json({ judgeTeams })
+})
+
+sessionsRoute.patch('/:code/judge-teams/:teamId', requireAuth, requireSignature, async (c) => {
+  const code = c.req.param('code')
+  const teamId = c.req.param('teamId')
+  const session = await getSessionByCode(code)
+  if (!session) {
+    return c.json({ error: { code: 'SESSION_NOT_FOUND', message: 'Session not found' } }, 404)
+  }
+
+  const auth = getAuth(c)
+  const participant = await getParticipantByDevice(session, auth.deviceId)
+  if (!participant || participant.role !== 'judge_advisor') {
+    return c.json({ error: { code: 'FORBIDDEN', message: 'Only judge advisor can update judge teams' } }, 403)
+  }
+
+  const body = await c.req.json().catch(() => null)
+  const schema = z.object({
+    name: z.string().min(1).optional(),
+    judgeDeviceIds: z.array(z.string()).optional(),
+  })
+  const parseResult = schema.safeParse(body)
+  if (!parseResult.success) {
+    return c.json({ error: { code: 'INVALID_REQUEST', message: 'Invalid update payload' } }, 400)
+  }
+
+  const judgeTeam = await updateJudgeTeam(session, teamId, parseResult.data)
+  if (!judgeTeam) {
+    return c.json({ error: { code: 'NOT_FOUND', message: 'Judge team not found' } }, 404)
+  }
+
+  const io = getSocketIO()
+  if (io) {
+    io.to(getRoomName(session.sessionCode)).emit('judge_team:updated', { judgeTeam })
+  }
+
+  return c.json({ judgeTeam })
+})
+
+sessionsRoute.delete('/:code/judge-teams/:teamId', requireAuth, requireSignature, async (c) => {
+  const code = c.req.param('code')
+  const teamId = c.req.param('teamId')
+  const session = await getSessionByCode(code)
+  if (!session) {
+    return c.json({ error: { code: 'SESSION_NOT_FOUND', message: 'Session not found' } }, 404)
+  }
+
+  const auth = getAuth(c)
+  const participant = await getParticipantByDevice(session, auth.deviceId)
+  if (!participant || participant.role !== 'judge_advisor') {
+    return c.json({ error: { code: 'FORBIDDEN', message: 'Only judge advisor can delete judge teams' } }, 403)
+  }
+
+  await deleteJudgeTeam(session, teamId)
+
+  const io = getSocketIO()
+  if (io) {
+    io.to(getRoomName(session.sessionCode)).emit('judge_team:deleted', { teamId })
+  }
+
+  return c.json({ success: true })
+})
+
+// Team Assignments
+sessionsRoute.post('/:code/team-assignments', requireAuth, requireSignature, async (c) => {
+  const code = c.req.param('code')
+  const session = await getSessionByCode(code)
+  if (!session) {
+    return c.json({ error: { code: 'SESSION_NOT_FOUND', message: 'Session not found' } }, 404)
+  }
+
+  const auth = getAuth(c)
+  const participant = await getParticipantByDevice(session, auth.deviceId)
+  if (!participant || participant.role !== 'judge_advisor') {
+    return c.json({ error: { code: 'FORBIDDEN', message: 'Only judge advisor can create team assignments' } }, 403)
+  }
+
+  const body = await c.req.json().catch(() => null)
+  const schema = z.object({
+    judgeTeamId: z.string(),
+    teamNumber: z.string(),
+  })
+  const parseResult = schema.safeParse(body)
+  if (!parseResult.success) {
+    return c.json({ error: { code: 'INVALID_REQUEST', message: 'Invalid assignment payload' } }, 400)
+  }
+
+  const assignment = await createTeamAssignment(session, parseResult.data.judgeTeamId, parseResult.data.teamNumber)
+
+  const io = getSocketIO()
+  if (io) {
+    io.to(getRoomName(session.sessionCode)).emit('team_assignment:created', { assignment })
+  }
+
+  return c.json({ assignment })
+})
+
+sessionsRoute.get('/:code/team-assignments', requireAuth, async (c) => {
+  const code = c.req.param('code')
+  const session = await getSessionByCode(code)
+  if (!session) {
+    return c.json({ error: { code: 'SESSION_NOT_FOUND', message: 'Session not found' } }, 404)
+  }
+
+  const assignments = await listTeamAssignments(session)
+  return c.json({ assignments })
+})
+
+sessionsRoute.delete('/:code/team-assignments/:assignmentId', requireAuth, requireSignature, async (c) => {
+  const code = c.req.param('code')
+  const assignmentId = c.req.param('assignmentId')
+  const session = await getSessionByCode(code)
+  if (!session) {
+    return c.json({ error: { code: 'SESSION_NOT_FOUND', message: 'Session not found' } }, 404)
+  }
+
+  const auth = getAuth(c)
+  const participant = await getParticipantByDevice(session, auth.deviceId)
+  if (!participant || participant.role !== 'judge_advisor') {
+    return c.json({ error: { code: 'FORBIDDEN', message: 'Only judge advisor can delete team assignments' } }, 403)
+  }
+
+  await deleteTeamAssignment(session, assignmentId)
+
+  const io = getSocketIO()
+  if (io) {
+    io.to(getRoomName(session.sessionCode)).emit('team_assignment:deleted', { assignmentId })
+  }
+
+  return c.json({ success: true })
+})
+
+// Conflicts of Interest
+sessionsRoute.post('/:code/conflicts', requireAuth, requireSignature, async (c) => {
+  const code = c.req.param('code')
+  const session = await getSessionByCode(code)
+  if (!session) {
+    return c.json({ error: { code: 'SESSION_NOT_FOUND', message: 'Session not found' } }, 404)
+  }
+
+  const auth = getAuth(c)
+  const participant = await getParticipantByDevice(session, auth.deviceId)
+  if (!participant || !JUDGING_ALLOWED_ROLES.has(participant.role)) {
+    return c.json({ error: { code: 'FORBIDDEN', message: 'Insufficient permissions' } }, 403)
+  }
+
+  const body = await c.req.json().catch(() => null)
+  const schema = z.object({
+    judgeDeviceId: z.string(),
+    teamNumber: z.string(),
+    reason: z.string().optional(),
+  })
+  const parseResult = schema.safeParse(body)
+  if (!parseResult.success) {
+    return c.json({ error: { code: 'INVALID_REQUEST', message: 'Invalid conflict payload' } }, 400)
+  }
+
+  const createdBy = participant.role === 'judge_advisor' ? 'judge_advisor' : 'judge'
+  const conflict = await createConflictOfInterest(
+    session,
+    parseResult.data.judgeDeviceId,
+    parseResult.data.teamNumber,
+    createdBy,
+    parseResult.data.reason,
+  )
+
+  const io = getSocketIO()
+  if (io) {
+    io.to(getRoomName(session.sessionCode)).emit('conflict:created', { conflict })
+  }
+
+  return c.json({ conflict })
+})
+
+sessionsRoute.get('/:code/conflicts', requireAuth, async (c) => {
+  const code = c.req.param('code')
+  const session = await getSessionByCode(code)
+  if (!session) {
+    return c.json({ error: { code: 'SESSION_NOT_FOUND', message: 'Session not found' } }, 404)
+  }
+
+  const conflicts = await listConflictsOfInterest(session)
+  return c.json({ conflicts })
+})
+
+sessionsRoute.delete('/:code/conflicts/:conflictId', requireAuth, requireSignature, async (c) => {
+  const code = c.req.param('code')
+  const conflictId = c.req.param('conflictId')
+  const session = await getSessionByCode(code)
+  if (!session) {
+    return c.json({ error: { code: 'SESSION_NOT_FOUND', message: 'Session not found' } }, 404)
+  }
+
+  const auth = getAuth(c)
+  const participant = await getParticipantByDevice(session, auth.deviceId)
+  if (!participant || !JUDGING_ALLOWED_ROLES.has(participant.role)) {
+    return c.json({ error: { code: 'FORBIDDEN', message: 'Insufficient permissions' } }, 403)
+  }
+
+  await deleteConflictOfInterest(session, conflictId)
+
+  const io = getSocketIO()
+  if (io) {
+    io.to(getRoomName(session.sessionCode)).emit('conflict:deleted', { conflictId })
+  }
+
+  return c.json({ success: true })
+})
+
+// Notebook Scores
+sessionsRoute.post('/:code/notebook-scores', requireAuth, requireSignature, async (c) => {
+  const code = c.req.param('code')
+  const session = await getSessionByCode(code)
+  if (!session) {
+    return c.json({ error: { code: 'SESSION_NOT_FOUND', message: 'Session not found' } }, 404)
+  }
+
+  const auth = getAuth(c)
+  const participant = await getParticipantByDevice(session, auth.deviceId)
+  if (!participant || !JUDGING_ALLOWED_ROLES.has(participant.role)) {
+    return c.json({ error: { code: 'FORBIDDEN', message: 'Insufficient permissions' } }, 403)
+  }
+
+  const body = await c.req.json().catch(() => null)
+  const schema = z.object({
+    judgeTeamId: z.string(),
+    teamNumber: z.string(),
+    scores: z.record(z.number()),
+    totalScore: z.number(),
+    notes: z.string().optional(),
+    gradeLevel: z.enum(['ES', 'MS', 'HS', 'University']).optional(),
+    judgeName: z.string().optional(),
+    digitalNotebookUrl: z.string().optional(),
+  })
+  const parseResult = schema.safeParse(body)
+  if (!parseResult.success) {
+    return c.json({ error: { code: 'INVALID_REQUEST', message: 'Invalid notebook score payload' } }, 400)
+  }
+
+  const score = await createNotebookScore(session, {
+    ...parseResult.data,
+    createdBy: auth.deviceId,
+  })
+
+  const io = getSocketIO()
+  if (io) {
+    io.to(getRoomName(session.sessionCode)).emit('notebook_score:created', { score })
+  }
+
+  return c.json({ score })
+})
+
+sessionsRoute.get('/:code/notebook-scores', requireAuth, async (c) => {
+  const code = c.req.param('code')
+  const session = await getSessionByCode(code)
+  if (!session) {
+    return c.json({ error: { code: 'SESSION_NOT_FOUND', message: 'Session not found' } }, 404)
+  }
+
+  const scores = await listNotebookScores(session)
+  return c.json({ scores })
+})
+
+sessionsRoute.patch('/:code/notebook-scores/:scoreId', requireAuth, requireSignature, async (c) => {
+  const code = c.req.param('code')
+  const scoreId = c.req.param('scoreId')
+  const session = await getSessionByCode(code)
+  if (!session) {
+    return c.json({ error: { code: 'SESSION_NOT_FOUND', message: 'Session not found' } }, 404)
+  }
+
+  const auth = getAuth(c)
+  const participant = await getParticipantByDevice(session, auth.deviceId)
+  if (!participant || !JUDGING_ALLOWED_ROLES.has(participant.role)) {
+    return c.json({ error: { code: 'FORBIDDEN', message: 'Insufficient permissions' } }, 403)
+  }
+
+  const body = await c.req.json().catch(() => null)
+  const schema = z.object({
+    scores: z.record(z.number()).optional(),
+    totalScore: z.number().optional(),
+    notes: z.string().optional(),
+    gradeLevel: z.enum(['ES', 'MS', 'HS', 'University']).optional(),
+    judgeName: z.string().optional(),
+    digitalNotebookUrl: z.string().optional(),
+  })
+  const parseResult = schema.safeParse(body)
+  if (!parseResult.success) {
+    return c.json({ error: { code: 'INVALID_REQUEST', message: 'Invalid update payload' } }, 400)
+  }
+
+  const score = await updateNotebookScore(session, scoreId, parseResult.data)
+  if (!score) {
+    return c.json({ error: { code: 'NOT_FOUND', message: 'Notebook score not found' } }, 404)
+  }
+
+  const io = getSocketIO()
+  if (io) {
+    io.to(getRoomName(session.sessionCode)).emit('notebook_score:updated', { score })
+  }
+
+  return c.json({ score })
+})
+
+sessionsRoute.delete('/:code/notebook-scores/:scoreId', requireAuth, requireSignature, async (c) => {
+  const code = c.req.param('code')
+  const scoreId = c.req.param('scoreId')
+  const session = await getSessionByCode(code)
+  if (!session) {
+    return c.json({ error: { code: 'SESSION_NOT_FOUND', message: 'Session not found' } }, 404)
+  }
+
+  const auth = getAuth(c)
+  const participant = await getParticipantByDevice(session, auth.deviceId)
+  if (!participant || !JUDGING_ALLOWED_ROLES.has(participant.role)) {
+    return c.json({ error: { code: 'FORBIDDEN', message: 'Insufficient permissions' } }, 403)
+  }
+
+  await deleteNotebookScore(session, scoreId)
+
+  const io = getSocketIO()
+  if (io) {
+    io.to(getRoomName(session.sessionCode)).emit('notebook_score:deleted', { scoreId })
+  }
+
+  return c.json({ success: true })
+})
+
+// Interview Scores
+sessionsRoute.post('/:code/interview-scores', requireAuth, requireSignature, async (c) => {
+  const code = c.req.param('code')
+  const session = await getSessionByCode(code)
+  if (!session) {
+    return c.json({ error: { code: 'SESSION_NOT_FOUND', message: 'Session not found' } }, 404)
+  }
+
+  const auth = getAuth(c)
+  const participant = await getParticipantByDevice(session, auth.deviceId)
+  if (!participant || !JUDGING_ALLOWED_ROLES.has(participant.role)) {
+    return c.json({ error: { code: 'FORBIDDEN', message: 'Insufficient permissions' } }, 403)
+  }
+
+  const body = await c.req.json().catch(() => null)
+  const schema = z.object({
+    judgeTeamId: z.string(),
+    teamNumber: z.string(),
+    scores: z.record(z.number()),
+    totalScore: z.number(),
+    notes: z.string().optional(),
+    gradeLevel: z.enum(['ES', 'MS', 'HS', 'University']).optional(),
+    judgeName: z.string().optional(),
+    specialAttributes: z.string().optional(),
+    interviewDuration: z.number().optional(),
+  })
+  const parseResult = schema.safeParse(body)
+  if (!parseResult.success) {
+    return c.json({ error: { code: 'INVALID_REQUEST', message: 'Invalid interview score payload' } }, 400)
+  }
+
+  const score = await createInterviewScore(session, {
+    ...parseResult.data,
+    createdBy: auth.deviceId,
+  })
+
+  const io = getSocketIO()
+  if (io) {
+    io.to(getRoomName(session.sessionCode)).emit('interview_score:created', { score })
+  }
+
+  return c.json({ score })
+})
+
+sessionsRoute.get('/:code/interview-scores', requireAuth, async (c) => {
+  const code = c.req.param('code')
+  const session = await getSessionByCode(code)
+  if (!session) {
+    return c.json({ error: { code: 'SESSION_NOT_FOUND', message: 'Session not found' } }, 404)
+  }
+
+  const scores = await listInterviewScores(session)
+  return c.json({ scores })
+})
+
+sessionsRoute.patch('/:code/interview-scores/:scoreId', requireAuth, requireSignature, async (c) => {
+  const code = c.req.param('code')
+  const scoreId = c.req.param('scoreId')
+  const session = await getSessionByCode(code)
+  if (!session) {
+    return c.json({ error: { code: 'SESSION_NOT_FOUND', message: 'Session not found' } }, 404)
+  }
+
+  const auth = getAuth(c)
+  const participant = await getParticipantByDevice(session, auth.deviceId)
+  if (!participant || !JUDGING_ALLOWED_ROLES.has(participant.role)) {
+    return c.json({ error: { code: 'FORBIDDEN', message: 'Insufficient permissions' } }, 403)
+  }
+
+  const body = await c.req.json().catch(() => null)
+  const schema = z.object({
+    scores: z.record(z.number()).optional(),
+    totalScore: z.number().optional(),
+    notes: z.string().optional(),
+    gradeLevel: z.enum(['ES', 'MS', 'HS', 'University']).optional(),
+    judgeName: z.string().optional(),
+    specialAttributes: z.string().optional(),
+    interviewDuration: z.number().optional(),
+  })
+  const parseResult = schema.safeParse(body)
+  if (!parseResult.success) {
+    return c.json({ error: { code: 'INVALID_REQUEST', message: 'Invalid update payload' } }, 400)
+  }
+
+  const score = await updateInterviewScore(session, scoreId, parseResult.data)
+  if (!score) {
+    return c.json({ error: { code: 'NOT_FOUND', message: 'Interview score not found' } }, 404)
+  }
+
+  const io = getSocketIO()
+  if (io) {
+    io.to(getRoomName(session.sessionCode)).emit('interview_score:updated', { score })
+  }
+
+  return c.json({ score })
+})
+
+sessionsRoute.delete('/:code/interview-scores/:scoreId', requireAuth, requireSignature, async (c) => {
+  const code = c.req.param('code')
+  const scoreId = c.req.param('scoreId')
+  const session = await getSessionByCode(code)
+  if (!session) {
+    return c.json({ error: { code: 'SESSION_NOT_FOUND', message: 'Session not found' } }, 404)
+  }
+
+  const auth = getAuth(c)
+  const participant = await getParticipantByDevice(session, auth.deviceId)
+  if (!participant || !JUDGING_ALLOWED_ROLES.has(participant.role)) {
+    return c.json({ error: { code: 'FORBIDDEN', message: 'Insufficient permissions' } }, 403)
+  }
+
+  await deleteInterviewScore(session, scoreId)
+
+  const io = getSocketIO()
+  if (io) {
+    io.to(getRoomName(session.sessionCode)).emit('interview_score:deleted', { scoreId })
+  }
+
+  return c.json({ success: true })
+})
+
+// Nominations
+sessionsRoute.post('/:code/nominations', requireAuth, requireSignature, async (c) => {
+  const code = c.req.param('code')
+  const session = await getSessionByCode(code)
+  if (!session) {
+    return c.json({ error: { code: 'SESSION_NOT_FOUND', message: 'Session not found' } }, 404)
+  }
+
+  const auth = getAuth(c)
+  const participant = await getParticipantByDevice(session, auth.deviceId)
+  if (!participant || !JUDGING_ALLOWED_ROLES.has(participant.role)) {
+    return c.json({ error: { code: 'FORBIDDEN', message: 'Insufficient permissions' } }, 403)
+  }
+
+  const body = await c.req.json().catch(() => null)
+  const schema = z.object({
+    judgeTeamId: z.string(),
+    teamNumber: z.string(),
+    awardCategory: z.string(),
+    notes: z.string().optional(),
+  })
+  const parseResult = schema.safeParse(body)
+  if (!parseResult.success) {
+    return c.json({ error: { code: 'INVALID_REQUEST', message: 'Invalid nomination payload' } }, 400)
+  }
+
+  const nomination = await createNomination(session, {
+    ...parseResult.data,
+    createdBy: auth.deviceId,
+  })
+
+  const io = getSocketIO()
+  if (io) {
+    io.to(getRoomName(session.sessionCode)).emit('nomination:created', { nomination })
+  }
+
+  return c.json({ nomination })
+})
+
+sessionsRoute.get('/:code/nominations', requireAuth, async (c) => {
+  const code = c.req.param('code')
+  const session = await getSessionByCode(code)
+  if (!session) {
+    return c.json({ error: { code: 'SESSION_NOT_FOUND', message: 'Session not found' } }, 404)
+  }
+
+  const nominations = await listNominations(session)
+  return c.json({ nominations })
+})
+
+sessionsRoute.delete('/:code/nominations/:nominationId', requireAuth, requireSignature, async (c) => {
+  const code = c.req.param('code')
+  const nominationId = c.req.param('nominationId')
+  const session = await getSessionByCode(code)
+  if (!session) {
+    return c.json({ error: { code: 'SESSION_NOT_FOUND', message: 'Session not found' } }, 404)
+  }
+
+  const auth = getAuth(c)
+  const participant = await getParticipantByDevice(session, auth.deviceId)
+  if (!participant || !JUDGING_ALLOWED_ROLES.has(participant.role)) {
+    return c.json({ error: { code: 'FORBIDDEN', message: 'Insufficient permissions' } }, 403)
+  }
+
+  await deleteNomination(session, nominationId)
+
+  const io = getSocketIO()
+  if (io) {
+    io.to(getRoomName(session.sessionCode)).emit('nomination:deleted', { nominationId })
+  }
+
+  return c.json({ success: true })
+})
+
+// Timer Settings
+sessionsRoute.get('/:code/timer', requireAuth, async (c) => {
+  const code = c.req.param('code')
+  const session = await getSessionByCode(code)
+  if (!session) {
+    return c.json({ error: { code: 'SESSION_NOT_FOUND', message: 'Session not found' } }, 404)
+  }
+
+  let timer = await getTimerSettings(session)
+  if (!timer) {
+    timer = await initializeTimer(session, getAuth(c).deviceId)
+  }
+
+  return c.json({ timer })
+})
+
+sessionsRoute.patch('/:code/timer', requireAuth, requireSignature, async (c) => {
+  const code = c.req.param('code')
+  const session = await getSessionByCode(code)
+  if (!session) {
+    return c.json({ error: { code: 'SESSION_NOT_FOUND', message: 'Session not found' } }, 404)
+  }
+
+  const auth = getAuth(c)
+  const participant = await getParticipantByDevice(session, auth.deviceId)
+  if (!participant || !JUDGING_ALLOWED_ROLES.has(participant.role)) {
+    return c.json({ error: { code: 'FORBIDDEN', message: 'Insufficient permissions' } }, 403)
+  }
+
+  const body = await c.req.json().catch(() => null)
+  const schema = z.object({
+    defaultDuration: z.number().optional(),
+    currentDuration: z.number().optional(),
+    isRunning: z.boolean().optional(),
+    isPaused: z.boolean().optional(),
+    startedAt: z.number().optional(),
+    pausedAt: z.number().optional(),
+  })
+  const parseResult = schema.safeParse(body)
+  if (!parseResult.success) {
+    return c.json({ error: { code: 'INVALID_REQUEST', message: 'Invalid timer update payload' } }, 400)
+  }
+
+  const timer = await updateTimer(session, {
+    ...parseResult.data,
+    updatedBy: auth.deviceId,
+  })
+
+  if (!timer) {
+    return c.json({ error: { code: 'NOT_FOUND', message: 'Timer not found' } }, 404)
+  }
+
+  const io = getSocketIO()
+  if (io) {
+    io.to(getRoomName(session.sessionCode)).emit('timer:updated', { timer })
+  }
+
+  return c.json({ timer })
+})
+
+// Team Photos
+sessionsRoute.post('/:code/team-photos', requireAuth, requireSignature, async (c) => {
+  const code = c.req.param('code')
+  const session = await getSessionByCode(code)
+  if (!session) {
+    return c.json({ error: { code: 'SESSION_NOT_FOUND', message: 'Session not found' } }, 404)
+  }
+
+  const auth = getAuth(c)
+  const participant = await getParticipantByDevice(session, auth.deviceId)
+  if (!participant || !JUDGING_ALLOWED_ROLES.has(participant.role)) {
+    return c.json({ error: { code: 'FORBIDDEN', message: 'Insufficient permissions' } }, 403)
+  }
+
+  const body = await c.req.json().catch(() => null)
+  const schema = z.object({
+    teamNumber: z.string(),
+    judgeTeamId: z.string().optional(),
+    url: z.string(),
+    caption: z.string().optional(),
+  })
+  const parseResult = schema.safeParse(body)
+  if (!parseResult.success) {
+    return c.json({ error: { code: 'INVALID_REQUEST', message: 'Invalid photo payload' } }, 400)
+  }
+
+  const photo = await createTeamPhoto(session, {
+    ...parseResult.data,
+    createdBy: auth.deviceId,
+  })
+
+  const io = getSocketIO()
+  if (io) {
+    io.to(getRoomName(session.sessionCode)).emit('team_photo:created', { photo })
+  }
+
+  return c.json({ photo })
+})
+
+sessionsRoute.get('/:code/team-photos', requireAuth, async (c) => {
+  const code = c.req.param('code')
+  const session = await getSessionByCode(code)
+  if (!session) {
+    return c.json({ error: { code: 'SESSION_NOT_FOUND', message: 'Session not found' } }, 404)
+  }
+
+  const photos = await listTeamPhotos(session)
+  return c.json({ photos })
+})
+
+sessionsRoute.delete('/:code/team-photos/:photoId', requireAuth, requireSignature, async (c) => {
+  const code = c.req.param('code')
+  const photoId = c.req.param('photoId')
+  const session = await getSessionByCode(code)
+  if (!session) {
+    return c.json({ error: { code: 'SESSION_NOT_FOUND', message: 'Session not found' } }, 404)
+  }
+
+  const auth = getAuth(c)
+  const participant = await getParticipantByDevice(session, auth.deviceId)
+  if (!participant || !JUDGING_ALLOWED_ROLES.has(participant.role)) {
+    return c.json({ error: { code: 'FORBIDDEN', message: 'Insufficient permissions' } }, 403)
+  }
+
+  await deleteTeamPhoto(session, photoId)
+
+  const io = getSocketIO()
+  if (io) {
+    io.to(getRoomName(session.sessionCode)).emit('team_photo:deleted', { photoId })
+  }
+
+  return c.json({ success: true })
+})
+
+// Team Judging Notes
+sessionsRoute.post('/:code/judging-notes', requireAuth, requireSignature, async (c) => {
+  const code = c.req.param('code')
+  const session = await getSessionByCode(code)
+  if (!session) {
+    return c.json({ error: { code: 'SESSION_NOT_FOUND', message: 'Session not found' } }, 404)
+  }
+
+  const auth = getAuth(c)
+  const participant = await getParticipantByDevice(session, auth.deviceId)
+  if (!participant || !JUDGING_ALLOWED_ROLES.has(participant.role)) {
+    return c.json({ error: { code: 'FORBIDDEN', message: 'Insufficient permissions' } }, 403)
+  }
+
+  const body = await c.req.json().catch(() => null)
+  const schema = z.object({
+    judgeTeamId: z.string(),
+    teamNumber: z.string(),
+    content: z.string().min(1),
+  })
+  const parseResult = schema.safeParse(body)
+  if (!parseResult.success) {
+    return c.json({ error: { code: 'INVALID_REQUEST', message: 'Invalid note payload' } }, 400)
+  }
+
+  const note = await createTeamJudgingNote(session, {
+    ...parseResult.data,
+    createdBy: auth.deviceId,
+  })
+
+  const io = getSocketIO()
+  if (io) {
+    io.to(getRoomName(session.sessionCode)).emit('judging_note:created', { note })
+  }
+
+  return c.json({ note })
+})
+
+sessionsRoute.get('/:code/judging-notes', requireAuth, async (c) => {
+  const code = c.req.param('code')
+  const session = await getSessionByCode(code)
+  if (!session) {
+    return c.json({ error: { code: 'SESSION_NOT_FOUND', message: 'Session not found' } }, 404)
+  }
+
+  const notes = await listTeamJudgingNotes(session)
+  return c.json({ notes })
+})
+
+sessionsRoute.patch('/:code/judging-notes/:noteId', requireAuth, requireSignature, async (c) => {
+  const code = c.req.param('code')
+  const noteId = c.req.param('noteId')
+  const session = await getSessionByCode(code)
+  if (!session) {
+    return c.json({ error: { code: 'SESSION_NOT_FOUND', message: 'Session not found' } }, 404)
+  }
+
+  const auth = getAuth(c)
+  const participant = await getParticipantByDevice(session, auth.deviceId)
+  if (!participant || !JUDGING_ALLOWED_ROLES.has(participant.role)) {
+    return c.json({ error: { code: 'FORBIDDEN', message: 'Insufficient permissions' } }, 403)
+  }
+
+  const body = await c.req.json().catch(() => null)
+  const schema = z.object({
+    content: z.string().min(1),
+  })
+  const parseResult = schema.safeParse(body)
+  if (!parseResult.success) {
+    return c.json({ error: { code: 'INVALID_REQUEST', message: 'Invalid update payload' } }, 400)
+  }
+
+  const note = await updateTeamJudgingNote(session, noteId, parseResult.data.content)
+  if (!note) {
+    return c.json({ error: { code: 'NOT_FOUND', message: 'Note not found' } }, 404)
+  }
+
+  const io = getSocketIO()
+  if (io) {
+    io.to(getRoomName(session.sessionCode)).emit('judging_note:updated', { note })
+  }
+
+  return c.json({ note })
+})
+
+sessionsRoute.delete('/:code/judging-notes/:noteId', requireAuth, requireSignature, async (c) => {
+  const code = c.req.param('code')
+  const noteId = c.req.param('noteId')
+  const session = await getSessionByCode(code)
+  if (!session) {
+    return c.json({ error: { code: 'SESSION_NOT_FOUND', message: 'Session not found' } }, 404)
+  }
+
+  const auth = getAuth(c)
+  const participant = await getParticipantByDevice(session, auth.deviceId)
+  if (!participant || !JUDGING_ALLOWED_ROLES.has(participant.role)) {
+    return c.json({ error: { code: 'FORBIDDEN', message: 'Insufficient permissions' } }, 403)
+  }
+
+  await deleteTeamJudgingNote(session, noteId)
+
+  const io = getSocketIO()
+  if (io) {
+    io.to(getRoomName(session.sessionCode)).emit('judging_note:deleted', { noteId })
+  }
+
+  return c.json({ success: true })
+})
+
+// ============================================================================
+// END JUDGING SYSTEM ROUTES
+// ============================================================================
 
 sessionsRoute.get('/by-sku/:eventSku', async (c) => {
   const session = await getSessionBySku(c.req.param('eventSku'))

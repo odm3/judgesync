@@ -4,7 +4,20 @@ import type { EventData, EventMatch, SkillRun } from '@/types/robotevents'
 import { MatchScheduleList } from '@/components/MatchScheduleList'
 import { useTeamImages } from '@/hooks/useTeamImages'
 import { useJudgingSession } from '@/context/JudgingSessionContext'
-import { ArrowLeft, ClipboardList, CalendarClock, ImageIcon, Camera, Trash2, Loader, Trophy } from 'lucide-react'
+import { ArrowLeft, ClipboardList, CalendarClock, ImageIcon, Camera, Trash2, Loader, Trophy, Plus, Edit2, FileText, Award, MessageSquare } from 'lucide-react'
+import { NotebookScoringModal } from '@/components/NotebookScoringModal'
+import { InterviewScoringModal } from '@/components/InterviewScoringModal'
+import {
+  createNotebookScore,
+  updateNotebookScore,
+  createInterviewScore,
+  updateInterviewScore,
+  createJudgingNote,
+  deleteJudgingNote,
+  createNomination,
+  deleteNomination,
+} from '@/services/judging'
+import { useToast } from '@/context/ToastContext'
 
 interface TeamDetailsPageProps {
   event: EventData
@@ -234,17 +247,387 @@ function RestrictedNotice() {
 }
 
 function JudgingInformation({ team }: TeamInfoProps) {
+  const {
+    sessionCode,
+    notebookScores,
+    interviewScores,
+    judgingNotes,
+    nominations,
+    judgeTeams,
+    teamAssignments,
+  } = useJudgingSession()
+  const { pushToast } = useToast()
+
+  const [notebookModalOpen, setNotebookModalOpen] = useState(false)
+  const [interviewModalOpen, setInterviewModalOpen] = useState(false)
+  const [editingNotebookScore, setEditingNotebookScore] = useState<string | null>(null)
+  const [editingInterviewScore, setEditingInterviewScore] = useState<string | null>(null)
+  const [newNoteContent, setNewNoteContent] = useState('')
+  const [isCreatingNote, setIsCreatingNote] = useState(false)
+
+  // Get scores for this team
+  const teamNotebookScores = notebookScores.filter((s) => s.teamNumber === team.number)
+  const teamInterviewScore = interviewScores.find((s) => s.teamNumber === team.number)
+  const teamNotes = judgingNotes.filter((n) => n.teamNumber === team.number)
+  const teamNominations = nominations.filter((n) => n.teamNumber === team.number)
+
+  // Get judge team assignments for this team
+  const assignedJudgeTeam = teamAssignments.find((a) => a.teamNumber === team.number)
+  const judgeTeamInfo = assignedJudgeTeam
+    ? judgeTeams.find((jt) => jt.id === assignedJudgeTeam.judgeTeamId)
+    : null
+
+  // Award categories
+  const AWARD_CATEGORIES = [
+    'Excellence',
+    'Design',
+    'Judges',
+    'Innovate',
+    'Think',
+    'Build',
+    'Create',
+    'Amaze',
+    'Inspire',
+  ]
+
+  const handleSaveNotebookScore = async (data: any) => {
+    if (!sessionCode) return
+
+    try {
+      if (editingNotebookScore) {
+        await updateNotebookScore(sessionCode, editingNotebookScore, data)
+        pushToast({ title: 'Notebook score updated', variant: 'success' })
+      } else {
+        await createNotebookScore(sessionCode, {
+          ...data,
+          judgeTeamId: judgeTeamInfo?.id || 'unknown',
+          teamNumber: team.number,
+        })
+        pushToast({ title: 'Notebook score saved', variant: 'success' })
+      }
+      setNotebookModalOpen(false)
+      setEditingNotebookScore(null)
+    } catch (error: any) {
+      pushToast({ title: 'Failed to save notebook score', description: error.message, variant: 'destructive' })
+      throw error
+    }
+  }
+
+  const handleSaveInterviewScore = async (data: any) => {
+    if (!sessionCode) return
+
+    try {
+      if (editingInterviewScore) {
+        await updateInterviewScore(sessionCode, editingInterviewScore, data)
+        pushToast({ title: 'Interview score updated', variant: 'success' })
+      } else {
+        await createInterviewScore(sessionCode, {
+          ...data,
+          judgeTeamId: judgeTeamInfo?.id || 'unknown',
+          teamNumber: team.number,
+        })
+        pushToast({ title: 'Interview score saved', variant: 'success' })
+      }
+      setInterviewModalOpen(false)
+      setEditingInterviewScore(null)
+    } catch (error: any) {
+      pushToast({ title: 'Failed to save interview score', description: error.message, variant: 'destructive' })
+      throw error
+    }
+  }
+
+  const handleCreateNote = async () => {
+    if (!sessionCode || !newNoteContent.trim()) return
+
+    setIsCreatingNote(true)
+    try {
+      await createJudgingNote(sessionCode, {
+        teamNumber: team.number,
+        content: newNoteContent.trim(),
+        category: 'general',
+      })
+      setNewNoteContent('')
+      pushToast({ title: 'Note added', variant: 'success' })
+    } catch (error: any) {
+      pushToast({ title: 'Failed to create note', description: error.message, variant: 'destructive' })
+    } finally {
+      setIsCreatingNote(false)
+    }
+  }
+
+  const handleDeleteNote = async (noteId: string) => {
+    if (!sessionCode) return
+
+    try {
+      await deleteJudgingNote(sessionCode, noteId)
+      pushToast({ title: 'Note deleted', variant: 'success' })
+    } catch (error: any) {
+      pushToast({ title: 'Failed to delete note', description: error.message, variant: 'destructive' })
+    }
+  }
+
+  const handleToggleNomination = async (awardCategory: string) => {
+    if (!sessionCode) return
+
+    const existing = teamNominations.find((n) => n.awardCategory === awardCategory)
+
+    try {
+      if (existing) {
+        await deleteNomination(sessionCode, existing.id)
+        pushToast({ title: `${awardCategory} nomination removed`, variant: 'success' })
+      } else {
+        await createNomination(sessionCode, {
+          teamNumber: team.number,
+          awardCategory,
+        })
+        pushToast({ title: `${awardCategory} nomination added`, variant: 'success' })
+      }
+    } catch (error: any) {
+      pushToast({ title: 'Failed to update nomination', description: error.message, variant: 'destructive' })
+    }
+  }
+
   return (
-    <div className="space-y-4 text-sm text-muted-foreground">
-      <p className="text-base font-semibold text-foreground">Judging Notes</p>
-      <p>
-        Keep track of notebooks, interview scores, and key observations for {team.team_name || team.number}.
-      </p>
-      <ul className="list-disc space-y-2 pl-5">
-        <li>Notebook submitted: <span className="font-medium text-foreground">Pending</span></li>
-        <li>Interview scheduled: <span className="font-medium text-foreground">TBD</span></li>
-        <li>Judging comments will appear here.</li>
-      </ul>
+    <div className="space-y-6">
+      {/* Team Assignment Info */}
+      {judgeTeamInfo && (
+        <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-4">
+          <p className="text-sm font-medium text-foreground">
+            Assigned to Judge Team: <span className="text-blue-400">{judgeTeamInfo.name}</span>
+          </p>
+        </div>
+      )}
+
+      {/* Notebook Scores */}
+      <section className="space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <FileText className="h-5 w-5 text-primary" />
+            <h3 className="text-lg font-semibold text-foreground">Engineering Notebook</h3>
+          </div>
+          <button
+            onClick={() => {
+              setEditingNotebookScore(null)
+              setNotebookModalOpen(true)
+            }}
+            className="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+          >
+            <Plus className="h-4 w-4" />
+            Add Score
+          </button>
+        </div>
+
+        {teamNotebookScores.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-white/15 bg-black/20 p-4 text-center text-sm text-muted-foreground">
+            No notebook scores yet
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {teamNotebookScores.map((score) => (
+              <div
+                key={score.id}
+                className="flex items-center justify-between rounded-xl border border-white/10 bg-card/50 p-4"
+              >
+                <div>
+                  <p className="font-semibold text-foreground">
+                    {score.totalScore.toFixed(2)} / 55
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {score.judgeName || 'Anonymous'} • {score.gradeLevel || 'No grade level'}
+                  </p>
+                  {score.digitalNotebookUrl && (
+                    <a
+                      href={score.digitalNotebookUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-blue-400 hover:underline"
+                    >
+                      View Digital Notebook
+                    </a>
+                  )}
+                </div>
+                <button
+                  onClick={() => {
+                    setEditingNotebookScore(score.id)
+                    setNotebookModalOpen(true)
+                  }}
+                  className="rounded-lg border border-white/10 p-2 text-muted-foreground hover:border-white/20 hover:text-foreground"
+                >
+                  <Edit2 className="h-4 w-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* Interview Score */}
+      <section className="space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <MessageSquare className="h-5 w-5 text-green-400" />
+            <h3 className="text-lg font-semibold text-foreground">Team Interview</h3>
+          </div>
+          {!teamInterviewScore ? (
+            <button
+              onClick={() => {
+                setEditingInterviewScore(null)
+                setInterviewModalOpen(true)
+              }}
+              className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-3 py-2 text-sm font-medium text-white hover:bg-green-700"
+            >
+              <Plus className="h-4 w-4" />
+              Add Score
+            </button>
+          ) : (
+            <button
+              onClick={() => {
+                setEditingInterviewScore(teamInterviewScore.id)
+                setInterviewModalOpen(true)
+              }}
+              className="inline-flex items-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-sm font-medium text-foreground hover:border-white/20"
+            >
+              <Edit2 className="h-4 w-4" />
+              Edit
+            </button>
+          )}
+        </div>
+
+        {teamInterviewScore ? (
+          <div className="rounded-xl border border-green-500/20 bg-green-500/5 p-4">
+            <p className="text-2xl font-bold text-foreground">
+              {teamInterviewScore.totalScore.toFixed(2)} / 45
+            </p>
+            <p className="text-sm text-muted-foreground">
+              {teamInterviewScore.judgeName || 'Anonymous'} •{' '}
+              {teamInterviewScore.gradeLevel || 'No grade level'}
+            </p>
+            {teamInterviewScore.specialAttributes && (
+              <p className="mt-2 text-sm text-foreground">
+                <span className="font-medium">Special Attributes:</span>{' '}
+                {teamInterviewScore.specialAttributes}
+              </p>
+            )}
+            {teamInterviewScore.notes && (
+              <p className="mt-2 text-sm text-muted-foreground">{teamInterviewScore.notes}</p>
+            )}
+          </div>
+        ) : (
+          <div className="rounded-xl border border-dashed border-white/15 bg-black/20 p-4 text-center text-sm text-muted-foreground">
+            No interview score yet
+          </div>
+        )}
+      </section>
+
+      {/* Judging Notes */}
+      <section className="space-y-3">
+        <div className="flex items-center gap-2">
+          <ClipboardList className="h-5 w-5 text-yellow-400" />
+          <h3 className="text-lg font-semibold text-foreground">Judging Notes</h3>
+        </div>
+
+        <div className="space-y-2">
+          <textarea
+            value={newNoteContent}
+            onChange={(e) => setNewNoteContent(e.target.value)}
+            placeholder="Add observation or note..."
+            rows={3}
+            className="w-full rounded-lg border border-white/10 bg-background px-3 py-2 text-sm text-foreground"
+          />
+          <button
+            onClick={handleCreateNote}
+            disabled={!newNoteContent.trim() || isCreatingNote}
+            className="w-full rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+          >
+            {isCreatingNote ? 'Adding...' : 'Add Note'}
+          </button>
+        </div>
+
+        {teamNotes.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-white/15 bg-black/20 p-4 text-center text-sm text-muted-foreground">
+            No notes yet
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {teamNotes.map((note) => (
+              <div
+                key={note.id}
+                className="flex items-start justify-between gap-3 rounded-xl border border-white/10 bg-card/50 p-3"
+              >
+                <div className="flex-1">
+                  <p className="text-sm text-foreground">{note.content}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {new Date(note.createdAt).toLocaleString()}
+                  </p>
+                </div>
+                <button
+                  onClick={() => handleDeleteNote(note.id)}
+                  className="rounded-lg border border-white/10 p-1.5 text-muted-foreground hover:border-red-400/40 hover:text-red-300"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* Award Nominations */}
+      <section className="space-y-3">
+        <div className="flex items-center gap-2">
+          <Award className="h-5 w-5 text-purple-400" />
+          <h3 className="text-lg font-semibold text-foreground">Award Nominations</h3>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          {AWARD_CATEGORIES.map((award) => {
+            const isNominated = teamNominations.some((n) => n.awardCategory === award)
+            return (
+              <button
+                key={award}
+                onClick={() => handleToggleNomination(award)}
+                className={[
+                  'rounded-lg border px-3 py-2 text-sm font-medium transition',
+                  isNominated
+                    ? 'border-purple-500/50 bg-purple-500/20 text-purple-300'
+                    : 'border-white/10 bg-card/50 text-muted-foreground hover:border-white/20 hover:text-foreground',
+                ].join(' ')}
+              >
+                {award}
+              </button>
+            )
+          })}
+        </div>
+      </section>
+
+      {/* Modals */}
+      <NotebookScoringModal
+        isOpen={notebookModalOpen}
+        onClose={() => {
+          setNotebookModalOpen(false)
+          setEditingNotebookScore(null)
+        }}
+        teamNumber={team.number}
+        judgeTeamId={judgeTeamInfo?.id || 'unknown'}
+        existingScore={
+          editingNotebookScore
+            ? teamNotebookScores.find((s) => s.id === editingNotebookScore)
+            : undefined
+        }
+        onSave={handleSaveNotebookScore}
+      />
+
+      <InterviewScoringModal
+        isOpen={interviewModalOpen}
+        onClose={() => {
+          setInterviewModalOpen(false)
+          setEditingInterviewScore(null)
+        }}
+        teamNumber={team.number}
+        judgeTeamId={judgeTeamInfo?.id || 'unknown'}
+        existingScore={editingInterviewScore ? teamInterviewScore : undefined}
+        onSave={handleSaveInterviewScore}
+      />
     </div>
   )
 }

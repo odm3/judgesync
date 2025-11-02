@@ -1,0 +1,114 @@
+{
+  "name": "Team Interview Rubric",
+  "version": "2025-06-30",
+  "criteria": [
+    {
+      "id": "engineering_design",
+      "name": "Engineering Design Process",
+      "awardTags": ["All Awards"],
+      "maxPoints": 5,
+      "descriptions": {
+        "expert": "Team shows evidence of independent inquiry from the beginning stages of their design process. This includes brainstorming, testing, and exploring alternative solutions.",
+        "proficient": "Team shows evidence of independent inquiry for some elements of their design process.",
+        "emerging": "Team shows little to no evidence of independent inquiry in their design process."
+      }
+    },
+    {
+      "id": "game_strategy",
+      "name": "Game Strategy",
+      "awardTags": ["Design", "Innovate", "Create", "Amaze"],
+      "maxPoints": 5,
+      "descriptions": {
+        "expert": "Team can fully explain their entire game strategy including game analysis.",
+        "proficient": "Team can explain their current strategy with limited evidence of game analysis.",
+        "emerging": "Team did not explain game strategy, or strategy is not student-directed."
+      }
+    },
+    {
+      "id": "robot_design",
+      "name": "Robot Design",
+      "awardTags": ["Design", "Innovate", "Build", "Create", "Amaze"],
+      "maxPoints": 5,
+      "descriptions": {
+        "expert": "Team can fully explain the evolution of their robot design to the current design.",
+        "proficient": "Team can provide a limited description of why the current robot design was chosen, but shows limited evolution.",
+        "emerging": "Team did not explain robot design, or design is not student-directed."
+      }
+    },
+    {
+      "id": "robot_build",
+      "name": "Robot Build",
+      "awardTags": ["Innovate", "Build", "Create", "Amaze"],
+      "maxPoints": 5,
+      "descriptions": {
+        "expert": "Team can fully explain their robot construction. Ownership of the robot build is evident.",
+        "proficient": "Team can describe why the current robot design was chosen, but with limited explanation.",
+        "emerging": "Team did not explain robot build, or build is not student-directed."
+      }
+    },
+    {
+      "id": "robot_programming",
+      "name": "Robot Programming",
+      "awardTags": ["Design", "Innovate", "Think", "Amaze"],
+      "maxPoints": 5,
+      "descriptions": {
+        "expert": "Team can fully explain the evolution of their programming.",
+        "proficient": "Team can describe how the current programs work, but with limited evolution.",
+        "emerging": "Team did not explain programming, or programming is not student-directed."
+      }
+    },
+    {
+      "id": "creativity_originality",
+      "name": "Creativity / Originality",
+      "awardTags": ["Innovate", "Create"],
+      "maxPoints": 5,
+      "descriptions": {
+        "expert": "Team can describe creative aspect(s) of their robot with clarity and detail.",
+        "proficient": "Team can describe a creative solution but the answer lacks detail.",
+        "emerging": "Team has difficulty describing a creative solution or gives minimal response."
+      }
+    },
+    {
+      "id": "team_project_management",
+      "name": "Team and Project Management",
+      "awardTags": ["All Awards"],
+      "maxPoints": 5,
+      "descriptions": {
+        "expert": "Team can explain how team progress was tracked against an overall project timeline. Team can explain management of material and personnel resources.",
+        "proficient": "Team can explain how team progress was monitored, and some degree of management of material and personnel resources.",
+        "emerging": "Team cannot explain how team progress was monitored or how resources were managed."
+      }
+    },
+    {
+      "id": "teamwork_communication",
+      "name": "Teamwork, Communication, Professionalism",
+      "awardTags": ["All Awards"],
+      "maxPoints": 5,
+      "descriptions": {
+        "expert": "Most or all team members contribute to explanations of the design process, game strategy, and other work done by the team.",
+        "proficient": "Some team members contribute to explanations of the design process, game strategy, and other work done by the team.",
+        "emerging": "Few team members contribute to explanations of the design process, game strategy, and other work done by the team."
+      }
+    },
+    {
+      "id": "respect_courtesy",
+      "name": "Respect, Courtesy, Positivity",
+      "awardTags": ["All Awards"],
+      "maxPoints": 5,
+      "descriptions": {
+        "expert": "Team consistently interacts respectfully, courteously, and positively in their interview.",
+        "proficient": "Team interactions show signs of respect and courtesy, but there is room for improvement.",
+        "emerging": "Team interactions lack respectful and courteous behavior."
+      }
+    }
+  ],
+  "specialAttributesSection": {
+    "id": "special_attributes",
+    "name": "Special Attributes & Overall Impressions",
+    "awardTags": ["Judges", "Inspire"],
+    "prompt": "Does the team have any special attributes, accomplishments, or exemplary effort in overcoming challenges at this event? Did anything stand out about this team in their interview? Please describe:",
+    "isOptional": true
+  },
+  "totalMaxPoints": 45,
+  "notes": "All judging materials are strictly confidential. They are not shared beyond the Judges and Judge Advisor and shall be destroyed at the end of the event."
+}
